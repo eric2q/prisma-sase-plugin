@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.3 — 2026-07-24
+
+Follow-ups to the cloud-session report: teach the AI to READ the breadcrumb,
+and make credential-storage principles explicit and enforceable.
+
+- **CHG (Skill):** bootstrap runbook step 1 now explains how to interpret
+  `~/.prisma-sase-launch.log` line by line — including the key inference
+  that a **missing file means the host never attempted to launch the MCP
+  server** (vs. a launch that died), which the field report couldn't
+  distinguish.
+- **NEW (Skill):** "Credential handling rules — enforce these when guiding
+  users": (1) the LOCAL machine's env file is the only long-term home —
+  never project folders / repos / shared drives; (2) secrets never in the
+  conversation — stop users who start pasting one; (3) cloud staged copies
+  are temporary working copies — proactively remind users to delete them;
+  (4) exposure → rotate in SCM, deleting the leaked copy is not enough.
+- **DOC:** the same storage principles spelled out in plugin/README (cloud
+  section) and both root READMEs' credentials step (EN + zh-TW).
+
 ## 0.7.2 — 2026-07-24
 
 Driven by the cloud-session field report (Cowork remote sandbox, region sg):

@@ -164,6 +164,12 @@ PRISMA_REGION=sg
 your tenant's actual region (e.g. `sg`, `us`, `de`). Then restart the Claude
 app and (optionally) verify with the server's `--selfcheck`.
 
+**Storage principle:** this env file on your **local machine** is the
+credentials' only long-term home (`chmod 600`). Never commit it to a repo,
+never keep copies in project folders, and never paste its contents anywhere
+— for cloud sessions, use a temporary staged copy and delete it afterwards
+(see [`plugin/README.md`](plugin/README.md), "Cloud sessions").
+
 > ⚠️ **Never paste the Client Secret into a chat, message window, or document.**
 > The tools deliberately take no credential parameters — credentials only ever
 > enter the local env file. If the secret ever leaks, rotate it in SCM
