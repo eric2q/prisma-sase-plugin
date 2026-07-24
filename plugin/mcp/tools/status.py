@@ -64,8 +64,8 @@ def get_sase_status(tsg_id=None, region=None):
         sections["experience"] = {"error": ex.get("error"), "hint": ex.get("hint")}
 
     headline, checks = _headline(sections)
-    return {"ok": True, "headline": headline, "checks": checks,
-            "sections": sections}
+    return {"ok": True, "plugin_version": config.PLUGIN_VERSION,
+            "headline": headline, "checks": checks, "sections": sections}
 
 
 def _tunnels(tsg_id, region):

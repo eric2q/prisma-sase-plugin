@@ -58,7 +58,7 @@ def _selfcheck():
     missing_pkgs = [p for p in ("fastmcp", "httpx")
                     if importlib.util.find_spec(p) is None]
 
-    print("prisma-sase selfcheck")
+    print("prisma-sase selfcheck (plugin v%s)" % config.PLUGIN_VERSION)
     print("  python:       %s  (%s)" % (d["python"], d["executable"]))
     print("  packages:     %s" % ("fastmcp OK, httpx OK" if not missing_pkgs
                                   else "MISSING: " + ", ".join(missing_pkgs)))
@@ -150,9 +150,10 @@ def get_sase_status(tsg_id: Optional[str] = None,
     """Prisma SASE health overview in a single call: alert counts by severity,
     tunnel up/down for remote networks & service connections, currently
     connected Mobile Users, and the overall ADEM experience score. Use this for
-    vague "how is SASE doing / any problems right now?" questions. Read-only.
-    Optional tsg_id/region override the default tenant (handy for multi-customer
-    demos)."""
+    vague "how is SASE doing / any problems right now?" questions. Also returns
+    plugin_version -- use it when the user asks which plugin version they are
+    running. Read-only. Optional tsg_id/region override the default tenant
+    (handy for multi-customer demos)."""
     _audit("get_sase_status", tsg_id=tsg_id, region=region)
     return _get_sase_status(tsg_id=tsg_id, region=region)
 
@@ -236,6 +237,7 @@ def discover_insights(kind: Optional[str] = None,
 
 def main():
     d = config.env_diagnostics()
+    log.info("prisma-sase plugin v%s", config.PLUGIN_VERSION)
     log.info("interpreter: Python %s at %s", d["python"], d["executable"])
     if d["env_file"]:
         log.info("env file: %s (supplied: %s)", d["env_file"],

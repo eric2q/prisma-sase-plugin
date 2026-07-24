@@ -11,6 +11,8 @@ Usage:  python3 tools/build-standalone.py
 """
 import json
 import os
+import re
+import sys
 import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -41,10 +43,25 @@ def tree_files():
             yield full, os.path.relpath(full, PLUGIN_DIR)
 
 
+def _check_version_sync(market):
+    """Fail if config.PLUGIN_VERSION drifts from marketplace.json versions."""
+    cfg = os.path.join(PLUGIN_DIR, "mcp", "config.py")
+    with open(cfg, encoding="utf-8") as fh:
+        m = re.search(r'^PLUGIN_VERSION\s*=\s*"([^"]+)"', fh.read(), re.M)
+    code_ver = m.group(1) if m else None
+    market_vers = {p.get("version") for p in market["plugins"]}
+    market_vers.add(market.get("metadata", {}).get("version"))
+    if len(market_vers) != 1 or code_ver not in market_vers:
+        sys.exit("ERROR: version mismatch -- config.PLUGIN_VERSION=%s but "
+                 "marketplace.json carries %s. Bump them in lockstep "
+                 "(see PUBLISHING.md)." % (code_ver, sorted(market_vers)))
+
+
 def main():
     with open(os.path.join(ROOT, ".claude-plugin", "marketplace.json"),
               encoding="utf-8") as fh:
         market = json.load(fh)
+    _check_version_sync(market)
     entries = {p["name"]: p for p in market["plugins"]}
 
     os.makedirs(DIST, exist_ok=True)

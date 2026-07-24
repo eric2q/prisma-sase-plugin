@@ -25,8 +25,16 @@ Then tell the team the repo slug — that's all they need for
 3. Record changes in `plugin/CHANGELOG.md` — this is the **user-facing version
    history** (linked from both root READMEs), so write it for users: what was
    fixed (`FIX`), what's new (`NEW`), what behaves differently (`CHG`).
-4. **Bump `version` in `.claude-plugin/marketplace.json` — all three entries**
-   (single source of truth for what users see; keep the entries in lockstep).
+4. **Bump the version in FOUR places, in lockstep**: the three entries (+
+   `metadata`) in `.claude-plugin/marketplace.json` (what gates user-visible
+   updates), and `PLUGIN_VERSION` in `plugin/mcp/config.py` (what the server
+   reports in its startup log, `--selfcheck`, and
+   `get_sase_status.plugin_version` — how a Desktop user can ask Claude which
+   version they're running). `tools/build-standalone.py` fails on a mismatch;
+   a quick sync check:
+   ```bash
+   python3 tools/build-standalone.py && rm -rf dist   # errors out on drift
+   ```
 5. Commit + push:
    ```bash
    git add -A && git commit -m "v0.7.0: <summary>" && git push

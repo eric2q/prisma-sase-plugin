@@ -104,6 +104,10 @@ per-section `error`/`hint` says). The `checks` object gives the counts.
   certainly misread the unit — stop and re-check before reporting.
 - Keep it tight: summarize, don't dump raw JSON at the user. Surface the numbers
   that matter and the one or two things worth acting on.
+- **"Which plugin version am I running?"** → `get_sase_status` returns
+  `plugin_version`; the CLI equivalents (`--selfcheck`, the startup log) show
+  it too. Compare against the repo's `plugin/CHANGELOG.md` to tell the user
+  what their version does or lacks.
 
 ## Reading the `_verify` / `note` fields
 
