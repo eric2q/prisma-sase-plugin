@@ -156,6 +156,11 @@ PRISMA_REGION=sg
 實際 region(例如 `sg`、`us`、`de`)。填完重啟 Claude 應用程式,並可用
 server 的 `--selfcheck` 驗證。
 
+**存放原則:** 這個憑證檔**只存放在你的本機**,而且是唯一的長期存放位置
+(`chmod 600`)。不要提交進任何 repo、不要在專案資料夾留副本、不要把內容
+貼到任何地方 —— 雲端 session 需要時,用暫時的工作副本並在用完後刪除
+(見 [`plugin/README.md`](plugin/README.md) 的 "Cloud sessions" 一節)。
+
 > ⚠️ **Client Secret 請勿貼進任何對話、聊天視窗或文件** —— 工具刻意不提供
 > 憑證參數,憑證只進本機憑證檔。若 secret 曾外流,請立即在 SCM 輪替,
 > 並更新憑證檔。

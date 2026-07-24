@@ -236,12 +236,23 @@ landed (the env-file loader honors it):
 PRISMA_ENV_FILE=/path/to/prisma-sase.env
 ```
 
-⚠️ **Never paste the Client Secret into the conversation** — the tools take
-no credential parameters by design, and a secret in chat is a secret in the
-transcript. Deliberately, credentials do **not** auto-sync to the cloud;
-staging is a manual, visible act. Remove the staged copy when the session's
-work is done. No credentials at hand? `PRISMA_MOCK=1` runs every tool
-offline with realistic sample data.
+⚠️ **Storage principles (apply everywhere, not just cloud):**
+
+- The env file on your **local machine** is the credentials' **only
+  long-term home** (`~/.prisma-sase.env`, `chmod 600`). One file, one place.
+- **Never** commit it to a git repo, keep copies in project folders beyond a
+  session, sync it to shared drives/cloud storage, or paste the Client
+  Secret into any conversation — a secret in chat is a secret in the
+  transcript.
+- The cloud-staged copy above is a **temporary working copy**, not a second
+  home — delete it as soon as the session's work is done.
+- If a secret is ever exposed, **rotate it in SCM** (IAM → service account →
+  regenerate) and update the local env file; deleting the leaked copy does
+  not un-leak it.
+
+Deliberately, credentials do **not** auto-sync to the cloud; staging is a
+manual, visible act. No credentials at hand? `PRISMA_MOCK=1` runs every
+tool offline with realistic sample data.
 
 If the plugin's tools don't appear in a cloud session at all, see the
 Skill's **bootstrap runbook** (SKILL.md) and the launch breadcrumb at

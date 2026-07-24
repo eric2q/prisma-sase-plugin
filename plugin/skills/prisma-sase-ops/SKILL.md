@@ -131,11 +131,19 @@ fastmcp/httpx, and no `~/.prisma-sase.env`. If `get_sase_status` /
 `query_alerts` etc. are NOT in your tool list, do not improvise answers and
 do not give up — bootstrap in ~2 minutes:
 
-1. **Diagnose** (also check `~/.prisma-sase-launch.log` — the launcher and
-   server leave a breadcrumb there when they die):
+1. **Diagnose** — read the launch breadcrumb FIRST, then run selfcheck:
    ```bash
+   cat ~/.prisma-sase-launch.log           # why the server died (stderr is invisible here)
    bash <plugin>/mcp/run.sh --selfcheck    # or: python3 <plugin>/mcp/server.py --selfcheck
    ```
+   How to read the breadcrumb:
+   - **File does not exist** → the host never even ran the launcher (the
+     MCP server was not attempted) — bootstrapping below is the only path.
+   - `run.sh invoked` → launch was attempted.
+   - `launching with <python>` → an interpreter was chosen; if nothing
+     follows, the server process itself died after start (check selfcheck).
+   - `FATAL: ...` → the exact cause of death: no Python ≥ 3.10, version
+     floor, or missing packages — each maps to step 2 below.
 2. **Missing deps** → create the venv the launcher already knows to find:
    ```bash
    python3 -m venv ~/.prisma-sase-venv
@@ -160,6 +168,26 @@ do not give up — bootstrap in ~2 minutes:
    Same client, same read-only guarantees, same output shapes as the MCP
    tools — everything in this Skill about interpreting results applies
    unchanged.
+
+## Credential handling rules — enforce these when guiding users
+
+1. **Canonical home: the user's LOCAL machine, and only there** —
+   `~/.prisma-sase.env` (Windows: `%USERPROFILE%\.prisma-sase.env`),
+   `chmod 600`. Never suggest keeping credentials in project folders, git
+   repos, notes, shared drives, or cloud storage. One file, one place.
+2. **Never in the conversation.** Do not ask for, accept, or echo
+   `PRISMA_CLIENT_SECRET` (or full env-file contents) in chat — the tools
+   take no credential parameters by design. If a user starts pasting a
+   secret, stop them and point to the env file instead.
+3. **Cloud sessions get a TEMPORARY staged copy only** (bootstrap runbook
+   step 3): a non-dotfile copy in an authorized folder + `PRISMA_ENV_FILE`.
+   It is a working copy, not a second home — when the session's work is
+   done, **proactively remind the user to delete it**.
+4. **Suspected exposure → rotate, don't just delete.** If a secret ever
+   lands in a chat, repo, or shared file, tell the user to rotate it in SCM
+   (Identity & Access Management → the service account → regenerate the
+   secret) and update the local env file. Deleting the message/file does
+   not un-leak it.
 
 ## References
 
