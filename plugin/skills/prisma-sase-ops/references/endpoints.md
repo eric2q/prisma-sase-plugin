@@ -39,6 +39,21 @@ Operators available: `equal`, `not_equal`, `in`, `not_in`, `greater`,
 `greater_or_equal`, `less`, `less_or_equal`; time: `last_n_hours`,
 `last_n_days`, `last_n_weeks`, `between`.
 
+## Probing an unknown view (issue #3 technique, live-verified)
+
+To test whether a view exists, SELECT with `properties: ["*"]` — always a
+valid SELECT — then read the server's error identity on a 400:
+
+| 400 signature | Meaning | Action |
+|---|---|---|
+| `DATA10003` / "Invalid resource" | the resource/view **name does not exist** | try other names (`discover_insights` automates this) |
+| `GCP10002` / "Unrecognized name: X" | the view **exists**; field `X` is wrong | keep the view; fix the property (`PRISMA_FILTER_TIME_PROP` etc.) |
+| "SELECT list must not be empty" | empty SELECT sent — 400s even on existing views | never probe with an empty/omitted SELECT |
+
+`discover_insights` applies exactly this: `["*"]` probes, error-code
+classification (`not_found` vs `exists_field_mismatch`), and a filter-only
+fallback matching what the live-verified query tools send.
+
 ## ADEM score query (confirmed shape)
 
 ```

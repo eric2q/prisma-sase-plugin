@@ -120,12 +120,15 @@ def query_alerts(severity=None, state=None, hours=24, limit=config.DEFAULT_LIMIT
         return out
 
     # --- aggregate summary (honest counts, no severity) ----------------------
-    agg = records[0]
+    # Issue #3 (low): the view returns ONE ROW PER SUB-TENANT. Sum across all
+    # rows and say so -- a single-row read both under-counted multi-sub-tenant
+    # tenants and made the number mismatch the per-tenant figure in the UI.
+    agg_rows = [r for r in records if isinstance(r, dict)]
     summary = {
-        "total": _int_of(agg, "total_count"),
-        "mobile_users": _int_of(agg, "mu_count"),
-        "remote_networks": _int_of(agg, "rn_count"),
-        "service_connections": _int_of(agg, "sc_count"),
+        "total": sum(_int_of(r, "total_count") for r in agg_rows),
+        "mobile_users": sum(_int_of(r, "mu_count") for r in agg_rows),
+        "remote_networks": sum(_int_of(r, "rn_count") for r in agg_rows),
+        "service_connections": sum(_int_of(r, "sc_count") for r in agg_rows),
     }
     out = {
         "ok": True,
@@ -138,11 +141,26 @@ def query_alerts(severity=None, state=None, hours=24, limit=config.DEFAULT_LIMIT
         "alerts": [],
         "note": ("This tenant's alerts/alerts_list is an AGGREGATE view "
                  "(counts by MU/RN/SC only) -- per-alert severity/message is "
-                 "structurally unavailable here. Run "
-                 "discover_insights(kind=\"alerts_detail\") to find the "
-                 "per-alert view, then set PRISMA_INSIGHTS_MAP with an "
-                 "\"alerts_detail\" entry."),
+                 "not exposed by this tenant's Insights 3.0 query layer. "
+                 "A field-verified tenant (region sg) had NO per-alert "
+                 "Insights view at all: severity lives in the dedicated "
+                 "Prisma Access alerts/notifications API, which this plugin "
+                 "does not integrate yet (Phase-2 candidate). "
+                 "discover_insights(kind=\"alerts_detail\") can check whether "
+                 "YOUR tenant exposes a detail view -- if it finds none, this "
+                 "is an API limitation, not a missing setting."),
     }
+    if len(agg_rows) > 1:
+        out["sub_tenant_count"] = len(agg_rows)
+        out["by_sub_tenant"] = [
+            {"sub_tenant_id": r.get("sub_tenant_id"),
+             "total": _int_of(r, "total_count")}
+            for r in agg_rows[:config.MAX_LIMIT]]
+        out["aggregation_note"] = (
+            "Counts are summed across %d sub-tenants; the SASE UI shows "
+            "per-sub-tenant numbers, so a single sub-tenant's figure will be "
+            "lower. Per-sub-tenant totals: see by_sub_tenant."
+            % len(agg_rows))
     if severity or state:
         out["filter_note"] = ("severity/state filters cannot be applied on the "
                               "aggregate view; showing totals instead.")

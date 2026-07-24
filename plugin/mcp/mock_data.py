@@ -94,8 +94,12 @@ def probe(resource, view):
     fields = ok_views.get((resource, view))
     if fields is None:
         from client import SaseApiError
+        # Mirror the live error identity (issue #3) so discovery's failure
+        # classification is exercised in mock mode too.
         raise SaseApiError("Not found (mock 400) on %s/%s." % (resource, view),
-                           status=400)
+                           status=400, api_code="DATA10003",
+                           api_message="Invalid resource '/%s/%s.json'"
+                                       % (resource, view))
     return {"data": [dict((f, "sample") for f in fields)]}
 
 

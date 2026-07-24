@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.6.8 — 2026-07-24
+
+Driven by issue #3 (live-test field report, region sg): discovery probe
+false negatives, honest severity messaging, sub-tenant count labeling.
+
+- **FIX (high, #3):** `discover_insights` probes now SELECT with
+  `properties:["*"]` (always a valid SELECT) and classify 400s by the
+  server's error identity instead of guessing: `DATA10003`/"Invalid
+  resource" → `not_found`; `GCP10002`/"Unrecognized name"/"SELECT list must
+  not be empty" → `exists_field_mismatch` (view exists, fix the property
+  name, not the view). A filter-only fallback variant matches the shape the
+  live-verified query tools send. Views that exist but need explicit
+  properties are no longer misclassified as unavailable.
+- **NEW:** `SaseApiError` carries `api_code`/`api_message` extracted from
+  error bodies; tool error dicts expose them (`api_error_code`/`_message`)
+  and 400 errors include the identity inline. Discovery output gains an
+  error-code interpretation note and a field-mismatch note naming the
+  affected views; mock probes mirror the DATA10003 shape.
+- **FIX (medium, #3):** aggregate-alerts messaging no longer implies a
+  missing view mapping. `query_alerts`' note and `get_sase_status`'
+  headline now say severity is not exposed by this tenant's Insights API
+  (field-verified: no per-alert Insights view exists on that tenant shape;
+  the dedicated Prisma Access alerts/notifications API is the Phase-2
+  path), with discovery as the way to check a given tenant.
+- **FIX (low, #3):** the aggregate alerts view returns one row per
+  sub-tenant; counts are now summed across ALL rows (previously only the
+  first row was read) and labeled: `sub_tenant_count`, `by_sub_tenant`
+  breakdown, an `aggregation_note`, and "across N sub-tenants" in the
+  status headline — so totals no longer look inconsistent with the
+  per-sub-tenant numbers in the SASE UI.
+- **DOC (#3):** the probing technique (`["*"]` + DATA10003 vs GCP10002
+  interpretation) documented in endpoints.md and the plugin README
+  troubleshooting table; SKILL.md updated to present severity gaps as an
+  API limitation and to always mention cross-sub-tenant aggregation.
+
 ## 0.6.7 — 2026-07-24
 
 Discovery no longer over-recommends PRISMA_INSIGHTS_MAP.

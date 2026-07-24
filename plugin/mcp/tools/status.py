@@ -32,6 +32,11 @@ def get_sase_status(tsg_id=None, region=None):
         if a.get("severity_unavailable"):
             sections["alerts"]["severity_unavailable"] = True
             sections["alerts"]["summary"] = a.get("summary_counts")
+        if a.get("sub_tenant_count"):
+            # Issue #3: the total is summed across sub-tenants -- label it so
+            # it doesn't read as a mismatch against the UI's per-tenant number.
+            sections["alerts"]["sub_tenant_count"] = a["sub_tenant_count"]
+            sections["alerts"]["aggregation_note"] = a.get("aggregation_note")
         if a.get("field_note"):
             sections["alerts"]["field_note"] = a["field_note"]
     else:
@@ -94,10 +99,14 @@ def _headline(sections):
         if a.get("severity_unavailable"):
             # Aggregate view (round-2 BUG-2): counts only, no severity. A
             # non-zero count is still worth attention; never call it benign.
+            # Issue #3: say the severity gap is the tenant's Insights API, not
+            # a missing mapping, and label cross-sub-tenant totals.
             if a.get("total"):
-                problems.append("%d alert(s) raised (severity breakdown "
-                                "unavailable -- alerts detail view not yet "
-                                "mapped)" % a["total"])
+                scope = (" across %d sub-tenants" % a["sub_tenant_count"]
+                         if a.get("sub_tenant_count") else "")
+                problems.append("%d alert(s) raised%s (severity breakdown "
+                                "not exposed by this tenant's Insights API)"
+                                % (a["total"], scope))
         else:
             by_sev = a.get("by_severity") or {}
             if by_sev.get("critical"):

@@ -81,9 +81,13 @@ per-section `error`/`hint` says). The `checks` object gives the counts.
   severity first. Lead with the counts by severity, then the notable items.
   **Exception**: when the response has `severity_unavailable: true`, this
   tenant's alerts view is an aggregate (counts by MU/RN/SC only) — report the
-  `summary_counts` and say severity breakdown is not available yet; never
-  invent severities, and mention `discover_insights(kind="alerts_detail")` as
-  the path to fix it.
+  `summary_counts` and say severity is **not exposed by this tenant's Insights
+  API**; never invent severities. `discover_insights(kind="alerts_detail")`
+  checks whether the tenant has a detail view — if it finds none, present this
+  as an API limitation (the dedicated alerts API is a Phase-2 candidate), NOT
+  as a setting the user forgot. If the response carries `sub_tenant_count` /
+  `aggregation_note`, always say the total is summed across N sub-tenants —
+  the SASE UI shows per-sub-tenant numbers and will look lower.
 - **ADEM scores** are always reported **with their rating band** (see
   `references/thresholds.md`), not as a bare number. A score below 70 is
   "degraded" and should be called out, with the weakest component named.
