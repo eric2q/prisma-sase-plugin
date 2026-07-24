@@ -4,6 +4,11 @@ How each MCP tool maps to the underlying Prisma SASE API, plus the tenant items
 still to confirm. (Auth facts are verified per design doc sec.3 and are handled
 inside the server — you never build a token or a header yourself.)
 
+> Scope note: this file covers only the APIs the tools call today. For the
+> **full** PANW Prisma SASE API landscape — every family on pan.dev, what's
+> covered, what's a read-only candidate, what the read-only design excludes —
+> see `api-catalog.md`.
+
 ## Tool → API
 
 | Tool | API family | Method & path | Notes |

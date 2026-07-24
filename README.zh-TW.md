@@ -33,6 +33,10 @@ Skill(工具決策樹、判讀閾值、診斷 runbook、週報模板)。安裝�
 | Linux | **`prisma-sase-linux`** | `bash mcp/run.sh` |
 | Windows | **`prisma-sase-windows`** | `cmd /c mcp\run.cmd` |
 
+想知道這 6 個工具對應到 PANW 完整 API 版圖的哪個位置(以及唯讀的 Phase 2
+還能加什麼)?見
+[Prisma SASE API catalog](plugin/skills/prisma-sase-ops/references/api-catalog.md)(英文)。
+
 ## 事前需求
 
 安裝前環境需要的東西都在下表。**不確定自己有沒有?直接執行安裝腳本(下面

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.6 — 2026-07-24
+
+PANW API landscape survey consolidated into the Skill.
+
+- **NEW:** `skills/prisma-sase-ops/references/api-catalog.md` — every Prisma
+  SASE API family published on pan.dev (surveyed 2026-07-24): Insights 3.0,
+  ADEM, Service Status, Subscription, Aggregate/Interconnect Monitoring,
+  Tenancy, IAM, Prisma Access Configuration, SCM Operations, SD-WAN
+  (unified + legacy), 5G Monitor, SSPM — each with base path, purpose, and a
+  coverage mark (implemented / partial / read-only candidate / not planned /
+  excluded-by-design). Includes documented Insights 3.0 resource-view names,
+  the legacy Insights 1.0/2.0 base-URL note (API-generation mismatch
+  diagnosis), the Phase-2 read-only menu, and source links.
+- **DOC:** SKILL.md references the catalog; endpoints.md carries a scope note
+  pointing to it; plugin/README tools section links the coverage picture;
+  root README (EN + zh-TW) links the catalog under the plugin table.
+
 ## 0.6.5 — 2026-07-24
 
 Credentials documentation: illustrated API-key walkthrough (from the Windows

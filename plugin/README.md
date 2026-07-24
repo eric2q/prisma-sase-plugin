@@ -19,6 +19,14 @@ and ADEM experience scores in natural language.
 | `get_remote_networks` | Per-tunnel status rows (RN/SC): up/down, site, throughput; filter `state="down"` |
 | `discover_insights` | Diagnostic: probe which Insights resource/view names your tenant actually accepts (read-only) |
 
+These tools sit on 2 of the ~15 Prisma SASE API families PANW publishes
+(Insights 3.0 + ADEM). The full landscape — every family on pan.dev, what's
+covered today, what's a read-only Phase-2 candidate (Service Status, ADEM app
+metrics, Aggregate Monitoring for MSP, SD-WAN monitor, Subscription quotas),
+and what the read-only design excludes (all `/sse/config` + push/jobs) — is
+catalogued in
+[`skills/prisma-sase-ops/references/api-catalog.md`](skills/prisma-sase-ops/references/api-catalog.md).
+
 ## Requirements
 
 - **Python ≥ 3.10** (fastmcp's floor). ⚠️ On macOS the built-in `python3` is

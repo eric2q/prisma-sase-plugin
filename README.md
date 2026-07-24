@@ -37,6 +37,10 @@ your OS:
 | Linux | **`prisma-sase-linux`** | `bash mcp/run.sh` |
 | Windows | **`prisma-sase-windows`** | `cmd /c mcp\run.cmd` |
 
+Curious how the 6 tools map onto PANW's full API surface (and what a read-only
+Phase 2 could add)? See the
+[Prisma SASE API catalog](plugin/skills/prisma-sase-ops/references/api-catalog.md).
+
 ## Prerequisites
 
 Everything the plugin needs before installing. **Not sure? Just run the install
