@@ -19,10 +19,21 @@ and ADEM experience scores in natural language.
 | `get_remote_networks` | Per-tunnel status rows (RN/SC): up/down, site, throughput; filter `state="down"` |
 | `discover_insights` | Diagnostic: probe which Insights resource/view names your tenant actually accepts (read-only) |
 
+These tools sit on 2 of the ~15 Prisma SASE API families PANW publishes
+(Insights 3.0 + ADEM). The full landscape — every family on pan.dev, what's
+covered today, what's a read-only Phase-2 candidate (Service Status, ADEM app
+metrics, Aggregate Monitoring for MSP, SD-WAN monitor, Subscription quotas),
+and what the read-only design excludes (all `/sse/config` + push/jobs) — is
+catalogued in
+[`skills/prisma-sase-ops/references/api-catalog.md`](skills/prisma-sase-ops/references/api-catalog.md).
+
 ## Requirements
 
 - **Python ≥ 3.10** (fastmcp's floor). ⚠️ On macOS the built-in `python3` is
   often **3.9** — it will NOT work. `install.sh` handles this for you.
+  On Debian/Ubuntu, `venv`/`pip` are separate packages — if missing,
+  `install.sh` prints the exact `sudo apt install python3-venv python3-pip`
+  fix.
 - macOS / Linux (`bash`), or Windows (see the **Windows install** section —
   Windows uses its own package variant `prisma-sase-windows.plugin`).
 - A Prisma SASE **read-only** service account (step 3 below).
@@ -48,7 +59,9 @@ server starts with an offline selfcheck. The plugin's launcher (`mcp/run.sh`)
 finds this venv automatically — you never edit `.mcp.json`.
 
 **Step 2 — install the plugin file.** In Claude Desktop:
-**Settings → Plugins → Upload from file** → pick `prisma-sase.plugin`.
+**Settings → Plugins → Upload from file** → pick the variant matching your OS
+(`prisma-sase-mac.plugin` / `prisma-sase-linux.plugin` /
+`prisma-sase-windows.plugin`, built via `python3 tools/build-standalone.py`).
 
 > ⚠️ Two paths that look right but are NOT an install:
 > - **Putting the plugin folder into a Project folder does nothing** — Claude
@@ -56,10 +69,42 @@ finds this venv automatically — you never edit `.mcp.json`.
 > - **"Add marketplace" only accepts git repos/URLs.** You do not need a GitHub
 >   repo — local installs go through **Upload from file**.
 
-**Step 3 — create a read-only service account.** In Strata Cloud Manager →
-Identity & Access: create a service account and grant it a **view-only** role
-bound to the TSG(s) you want to query. No role = no access; read-only is all
-this plugin needs.
+**Step 3 — create a read-only service account (the "API key").** The API key
+is a service account's **Client ID + Client Secret**, created in Strata Cloud
+Manager (SCM) in four steps (figures are schematic redrawings; tenant
+identifiers masked; red badges ①–⑤ number the flow):
+
+1. **Open Identity & Access Management** — gear icon (System Settings, ①) at
+   the bottom of SCM's left menu → **Identity & Access Management** (②) →
+   **Add Identity** (a three-page wizard opens).
+
+   <img src="docs/images/scm-1-iam-menu.png" alt="SCM left menu: ① System Settings gear → ② Identity & Access Management" width="380">
+
+2. **Identity Information** — Identity Type = **Service Account**; pick a
+   recognizable name (③, e.g. `apikey` — it becomes the Client ID prefix) →
+   Next.
+
+   <img src="docs/images/scm-2-identity-info.png" alt="Identity Information: Service Account + name" width="560">
+
+3. **Client Credentials** — the **Client ID** (④) and **Client Secret** (⑤)
+   are generated on the spot. ⚠️ **The secret is shown only this once** —
+   copy it immediately or **Download CSV File** (store in a password manager,
+   delete the file). Lost secrets can only be rotated. The digits after `@`
+   in the Client ID **are the TSG ID** — no separate lookup. → Next.
+
+   <img src="docs/images/scm-3-client-credentials.png" alt="Client Credentials: ④ Client ID (digits after @ = TSG ID), ⑤ Client Secret (shown once)" width="560">
+
+4. **Assign Roles** — labeled Optional but **required** (no role = HTTP 403):
+   Apps & Services = **All Apps & Services**, Role = **View Only
+   Administrator** → Submit. That covers everything this plugin does; don't
+   grant Superuser or any writable role (least privilege). MSP/multi-tenant:
+   create the identity under the correct TSG scope.
+
+   <img src="docs/images/scm-4-assign-roles.png" alt="Assign Roles: All Apps & Services + View Only Administrator → Submit" width="560">
+
+Never paste the Client Secret into a chat — the tools take no credential
+parameters by design; if a secret leaks, rotate it in SCM and update the env
+file.
 
 **Step 4 — provide the four variables.**
 

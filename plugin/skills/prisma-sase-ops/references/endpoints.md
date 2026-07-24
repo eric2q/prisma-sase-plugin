@@ -4,11 +4,16 @@ How each MCP tool maps to the underlying Prisma SASE API, plus the tenant items
 still to confirm. (Auth facts are verified per design doc sec.3 and are handled
 inside the server — you never build a token or a header yourself.)
 
+> Scope note: this file covers only the APIs the tools call today. For the
+> **full** PANW Prisma SASE API landscape — every family on pan.dev, what's
+> covered, what's a read-only candidate, what the read-only design excludes —
+> see `api-catalog.md`.
+
 ## Tool → API
 
 | Tool | API family | Method & path | Notes |
 |---|---|---|---|
-| `get_sase_status` | Insights 3.0 + ADEM | several, in parallel | Aggregates alerts, connectivity, users, experience |
+| `get_sase_status` | Insights 3.0 + ADEM | several, best-effort | Aggregates alerts, connectivity, users, experience (sequential sub-queries; a failing section doesn't block the others) |
 | `query_alerts` | Insights 3.0 | `POST /insights/v3.0/resource/query/<resource>/<view>` | Filter payload, time-windowed |
 | `get_connected_users` | Insights 3.0 | `POST /insights/v3.0/resource/query/<resource>/<view>` | Mobile Users |
 | `get_remote_networks` *(status only in P1)* | Insights 3.0 | `POST .../query/<resource>/<view>` | Tunnel up/down |

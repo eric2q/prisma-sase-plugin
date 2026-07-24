@@ -113,6 +113,10 @@ Tool responses may include:
 
 - `references/endpoints.md` — which tool maps to which API, filter syntax, and
   the tenant-confirmation checklist.
+- `references/api-catalog.md` — the full PANW Prisma SASE API landscape
+  (every family on pan.dev), what this plugin covers vs. what is a read-only
+  candidate vs. what the read-only design excludes. Use it to answer "can the
+  plugin do X / why not Y / what could Phase 2 add".
 - `references/thresholds.md` — ADEM score bands, alert severity ↔ P1–P4, tunnel
   status semantics.
 - `references/runbooks.md` — step-by-step diagnostic plays ("user says it's

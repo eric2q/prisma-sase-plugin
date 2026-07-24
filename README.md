@@ -1,37 +1,31 @@
 # Prisma SASE Plugin Marketplace
 
+**English** | [繁體中文](README.zh-TW.md)
+
 Read-only **Prisma SASE / Prisma Access** tools for Claude Desktop (Cowork) and
 Claude Code: a Python MCP server (6 query tools) plus the `prisma-sase-ops`
 Skill (decision tree, thresholds, runbooks, weekly-report template).
-Ask Claude things like *"現在 SASE 狀態如何?有沒有 P1 告警?"* or
+Ask Claude things like *"how is SASE doing right now — any P1 alerts?"* or
 *"list tunnel status — which are down?"* against your own tenant.
 
 > **Read-only by design** — no write / commit / config-push path exists anywhere.
 
-## 關於本專案與免責聲明 / About & Disclaimer
+## About & Disclaimer
 
-**中文** — 本專案作者任職於 Palo Alto Networks,職務為 Solutions Consultant。
-這是作者為了向客戶推廣 Prisma SASE、以個人時間開發的 **side project**:
-**並非 Palo Alto Networks 官方開發、維護或背書,不代表公司立場;
-內容與查詢結果亦不保證正確性、完整性或適用性** —— 使用前請自行評估,
-重要決策請以官方文件與官方支援管道為準。本專案以開源方式發佈
-(MIT License,見 [LICENSE](LICENSE)),歡迎透過 GitHub Issues / PR
-提出任何意見與回饋,也歡迎**無償**引用、修改與再利用。
+The author works at Palo Alto Networks as a Solutions Consultant. This is a
+personal **side project** built on personal time to help introduce Prisma SASE
+to customers. **It is not developed, maintained, or endorsed by Palo Alto
+Networks and does not represent the company; no guarantee is made as to the
+correctness, completeness, or fitness of its content or query results** —
+evaluate before use, and rely on official documentation and support channels
+for important decisions. The project is open source under the
+[MIT License](LICENSE); feedback and contributions are welcome via GitHub
+Issues / PRs, and everyone is free to use, modify, and reference it at no cost.
 
-**English** — The author works at Palo Alto Networks as a Solutions
-Consultant. This is a personal **side project** built on personal time to
-help introduce Prisma SASE to customers. **It is not developed, maintained,
-or endorsed by Palo Alto Networks and does not represent the company; no
-guarantee is made as to the correctness, completeness, or fitness of its
-content or query results** — evaluate before use, and rely on official
-documentation and support channels for important decisions. The project is
-open source under the [MIT License](LICENSE); feedback and contributions
-are welcome via GitHub Issues / PRs, and everyone is free to use, modify,
-and reference it at no cost.
-
-*Palo Alto Networks、Prisma 及相關標誌為 Palo Alto Networks, Inc. 之商標。
-Palo Alto Networks, Prisma, and related marks are trademarks of
+*Palo Alto Networks, Prisma, and related marks are trademarks of
 Palo Alto Networks, Inc.*
+
+## What's in the box
 
 This repo is a **plugin marketplace**: one code tree (`plugin/`), three OS-specific
 catalog entries that differ only in how the server is launched. Install the one for
@@ -42,6 +36,34 @@ your OS:
 | macOS | **`prisma-sase-mac`** | `bash mcp/run.sh` |
 | Linux | **`prisma-sase-linux`** | `bash mcp/run.sh` |
 | Windows | **`prisma-sase-windows`** | `cmd /c mcp\run.cmd` |
+
+Curious how the 6 tools map onto PANW's full API surface (and what a read-only
+Phase 2 could add)? See the
+[Prisma SASE API catalog](plugin/skills/prisma-sase-ops/references/api-catalog.md).
+
+## Prerequisites
+
+Everything the plugin needs before installing. **Not sure? Just run the install
+script (step 1 below)** — it checks all of this and, for anything missing,
+prints the exact command to fix it, per OS. It is always safe to re-run.
+
+| You need | How to check | If it's missing |
+|---|---|---|
+| **Python ≥ 3.10** | `python3 --version` (Windows: `py --version` or `python --version`) | macOS: `brew install python@3.12`, or the [python.org](https://www.python.org/downloads/) installer. Debian/Ubuntu: `sudo apt install python3 python3-venv python3-pip`. Fedora/RHEL: `sudo dnf install python3`. Windows: [python.org](https://www.python.org/downloads/) installer — tick **"Add python.exe to PATH"** |
+| **venv + pip** (usually bundled with Python) | `python3 -m venv --help` | Debian/Ubuntu ship them separately: `sudo apt install python3-venv python3-pip`. Elsewhere they come with Python |
+| **Network to PyPI** (one-time) | — | Needed once so the install script can fetch `fastmcp` + `httpx`. Behind a corporate proxy: set `HTTPS_PROXY=http://proxy:port` first, then run the script |
+| **git** (marketplace install only) | `git --version` | macOS: `xcode-select --install`. Linux: `sudo apt install git` / `sudo dnf install git`. Windows: [git-scm.com](https://git-scm.com/). No git at all? Use the standalone `.plugin` file instead (see [Repo layout](#repo-layout)) |
+
+⚠️ Two known traps the script also detects and explains:
+- **macOS**: the built-in `/usr/bin/python3` is often **3.9** — too old. Install
+  a newer one; the script finds it automatically.
+- **Windows**: if typing `python` opens the **Microsoft Store**, that's an alias
+  stub, not Python. Install the real one from python.org (tick "Add to PATH"),
+  or disable the alias (Settings → Apps → Advanced app settings → App execution
+  aliases).
+
+No Prisma tenant yet? Everything can still be tried offline: set `PRISMA_MOCK=1`
+and the tools answer with realistic sample data — no credentials, no network.
 
 ## Install
 
@@ -72,12 +94,78 @@ repository** → enter this repo (`eric2q/prisma-sase-plugin` or the full git UR
 /plugin install prisma-sase-windows@prisma-sase  # Windows
 ```
 
-**3. Credentials** — fill in `~/.prisma-sase.env` (Windows:
+**3. Credentials — create the API key and fill it in** (walkthrough below).
+The four values go into `~/.prisma-sase.env` (Windows:
 `%USERPROFILE%\.prisma-sase.env`; the template was created by the install
-script). Four values: `PRISMA_CLIENT_ID`, `PRISMA_CLIENT_SECRET`,
-`PRISMA_TSG_ID`, `PRISMA_REGION`. Restart the Claude app. Full details,
-service-account creation walkthrough, selfcheck and troubleshooting:
-[`plugin/README.md`](plugin/README.md).
+script). Restart the Claude app afterwards. Full details, selfcheck and
+troubleshooting: [`plugin/README.md`](plugin/README.md).
+
+## Getting the API key (read-only service account)
+
+Prisma SASE's "API key" is a **service account's Client ID + Client Secret**,
+created in **Strata Cloud Manager (SCM)** in four steps. This plugin only
+needs a **view-only** role — that is both a security requirement and a design
+guarantee (the tool layer has no write path at all).
+
+> The figures are schematic redrawings of an actual walkthrough (layout,
+> fields, and warnings faithful to the original screens); tenant identifiers
+> are masked. The red badges number the flow end-to-end: ① gear → ② IAM →
+> ③ name → ④ Client ID → ⑤ Client Secret.
+
+**Step 1 — open Identity & Access Management.** In SCM, click the gear icon
+(**System Settings**, ①) at the bottom of the left menu → **Identity & Access
+Management** (②) → **Add Identity**. A three-page wizard opens
+(Identity Information → Client Credentials → Assign Roles).
+
+<img src="plugin/docs/images/scm-1-iam-menu.png" alt="SCM left menu: ① System Settings gear → ② Identity & Access Management" width="420">
+
+**Step 2 — Identity Information.** Identity Type = **Service Account**; pick a
+recognizable Service Account Name (③, e.g. `apikey` or `claude-mcp-readonly` —
+it becomes the Client ID prefix); Contact and Description are optional → **Next**.
+
+<img src="plugin/docs/images/scm-2-identity-info.png" alt="Add New Identity — Identity Information: Identity Type = Service Account, ③ name" width="640">
+
+**Step 3 — Client Credentials (the critical one).** The system generates the
+two values on the spot: **Client ID** (④) and **Client Secret** (⑤).
+
+⚠️ **The Client Secret is shown only this once** — the screen itself warns
+*"Please save the Client Secret, you will not be able to copy it after saving
+the new identity."* Copy it immediately (or **Download CSV File** — it contains
+the secret; store it in a password manager, then delete the file). If it's
+lost, the only fix is to regenerate (rotate) the secret for this account and
+update the env file. No separate TSG lookup is needed: **the digits after `@`
+in the Client ID are the TSG ID.** → **Next**.
+
+<img src="plugin/docs/images/scm-3-client-credentials.png" alt="Client Credentials: ④ Client ID (digits after @ are the TSG ID), ⑤ Client Secret (shown once; Download CSV File)" width="640">
+
+**Step 4 — Assign Roles (required despite the "Optional" label).** A service
+account with no role has **no permissions** — the plugin would get HTTP 403.
+Apps & Services = **All Apps & Services**, Role = **View Only Administrator** →
+**Submit**. View Only Administrator covers every feature of this plugin; do
+**not** grant Superuser or any writable role (least privilege). In multi-tenant
+(MSP) environments, create the identity under the correct TSG scope and bind
+only the tenants you need.
+
+<img src="plugin/docs/images/scm-4-assign-roles.png" alt="Assign Roles: All Apps & Services + View Only Administrator → Submit" width="640">
+
+**Fill in the env file** with the values from step 3 (`KEY=VALUE`, no quotes;
+masked here with asterisks):
+
+```
+PRISMA_CLIENT_ID=apikey@**********.iam.panserviceaccount.com
+PRISMA_CLIENT_SECRET=********************************
+PRISMA_TSG_ID=**********
+PRISMA_REGION=sg
+```
+
+`PRISMA_TSG_ID` = the digits after `@` in the Client ID; `PRISMA_REGION` =
+your tenant's actual region (e.g. `sg`, `us`, `de`). Then restart the Claude
+app and (optionally) verify with the server's `--selfcheck`.
+
+> ⚠️ **Never paste the Client Secret into a chat, message window, or document.**
+> The tools deliberately take no credential parameters — credentials only ever
+> enter the local env file. If the secret ever leaks, rotate it in SCM
+> immediately and update the env file.
 
 ## Update
 
@@ -108,10 +196,11 @@ auto-update fine.
 ## Repo layout
 
 ```
-.claude-plugin/marketplace.json   # catalog: 2 entries, shared source, per-OS launcher
+.claude-plugin/marketplace.json   # catalog: 3 OS-specific entries, shared source, per-OS launcher
 plugin/                           # the single code tree (server + skills + installers)
 tools/build-standalone.py         # optional: build offline .plugin files (file-upload installs)
 PUBLISHING.md                     # maintainer release workflow
+README.zh-TW.md                   # this page in Traditional Chinese
 ```
 
 Standalone `.plugin` files (for machines without git access) can still be built

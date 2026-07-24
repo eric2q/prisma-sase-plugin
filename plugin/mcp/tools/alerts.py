@@ -107,10 +107,16 @@ def query_alerts(severity=None, state=None, hours=24, limit=config.DEFAULT_LIMIT
 
     records = records_of(raw)
     if not _is_aggregate(records):
+        # We queried without the severity/state rules; re-apply them locally
+        # BEFORE slimming/truncation so matches beyond the first `limit` rows
+        # are not lost and total_matched reflects the full record set.
+        if severity or state:
+            records = _filter_records(records, severity, state)
         out = _detail_output(raw, records, hours, limit, source="alerts")
         if (severity or state) and out.get("ok"):
-            # We queried without the severity/state rules; re-apply locally.
-            out = _local_filter(out, severity, state, limit)
+            out["filter_note"] = ("severity/state filtered locally (the "
+                                  "fallback view was queried with the time "
+                                  "filter only).")
         return out
 
     # --- aggregate summary (honest counts, no severity) ----------------------
@@ -195,24 +201,29 @@ def _detail_output(raw, records, hours, limit, source):
     return out
 
 
-def _local_filter(out, severity, state, limit):
-    """Re-apply severity/state filters client-side after a broad fallback query."""
+def _filter_records(records, severity, state):
+    """Re-apply severity/state filters client-side on the raw record list.
+
+    Runs on the full, pre-truncation records so counts and pagination stay
+    correct. Severity is read through the same field candidates used for
+    output; state through the whitelisted 'state' field.
+    """
     want_sev = {s.lower() for s in
                 ([severity] if isinstance(severity, str) else (severity or []))}
     want_state = {s.lower() for s in
                   ([state] if isinstance(state, str) else (state or []))}
-    rows = out.get("alerts") or []
-    if want_sev:
-        rows = [r for r in rows
-                if str(r.get("severity", "")).lower() in want_sev]
-    if want_state:
-        rows = [r for r in rows
-                if str(r.get("state", "")).lower() in want_state]
-    out["alerts"] = rows[:limit]
-    out["returned"] = len(out["alerts"])
-    out["total_matched"] = len(rows)
-    out["filter_note"] = ("severity/state filtered locally (the fallback view "
-                          "was queried with the time filter only).")
+    out = []
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        if want_sev:
+            sev = _first(r, _SEV_FIELDS)
+            if str(sev or "").lower() not in want_sev:
+                continue
+        if want_state:
+            if str(r.get("state", "")).lower() not in want_state:
+                continue
+        out.append(r)
     return out
 
 

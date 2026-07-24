@@ -1,5 +1,83 @@
 # Changelog
 
+## 0.6.6 — 2026-07-24
+
+PANW API landscape survey consolidated into the Skill.
+
+- **NEW:** `skills/prisma-sase-ops/references/api-catalog.md` — every Prisma
+  SASE API family published on pan.dev (surveyed 2026-07-24): Insights 3.0,
+  ADEM, Service Status, Subscription, Aggregate/Interconnect Monitoring,
+  Tenancy, IAM, Prisma Access Configuration, SCM Operations, SD-WAN
+  (unified + legacy), 5G Monitor, SSPM — each with base path, purpose, and a
+  coverage mark (implemented / partial / read-only candidate / not planned /
+  excluded-by-design). Includes documented Insights 3.0 resource-view names,
+  the legacy Insights 1.0/2.0 base-URL note (API-generation mismatch
+  diagnosis), the Phase-2 read-only menu, and source links.
+- **DOC:** SKILL.md references the catalog; endpoints.md carries a scope note
+  pointing to it; plugin/README tools section links the coverage picture;
+  root README (EN + zh-TW) links the catalog under the plugin table.
+
+## 0.6.5 — 2026-07-24
+
+Credentials documentation: illustrated API-key walkthrough (from the Windows
+deployment guide v0.5.0).
+
+- **NEW:** `plugin/docs/images/` — four schematic SCM screenshots
+  (tenant identifiers masked, red badges ①–⑤ numbering the flow):
+  System Settings → IAM menu, Identity Information, Client Credentials,
+  Assign Roles.
+- **DOC:** root README (EN + zh-TW) gains a full **"Getting the API key
+  (read-only service account)"** section — the four SCM wizard steps with
+  figures, the secret-shown-only-once warning (copy / Download CSV File /
+  rotate-if-lost), TSG ID = the digits after `@` in the Client ID, the
+  "Assign Roles says Optional but is required (no role = 403)" trap,
+  View Only Administrator + least-privilege guidance, and the
+  never-paste-the-secret-into-chat rule.
+- **DOC:** plugin/README Step 3 expanded from two lines into the same
+  illustrated four-step walkthrough (images ship inside the plugin, so the
+  standalone .plugin packages carry them too).
+
+## 0.6.4 — 2026-07-24
+
+Prerequisite guidance: assume the user may have NOTHING installed (not even
+Python) and guide every gap to resolution instead of dying with a raw error.
+
+- **NEW:** root README (EN + zh-TW) gains a **Prerequisites** section: a
+  check-it / fix-it table for Python ≥ 3.10, venv+pip, PyPI network access,
+  and git — with per-OS install commands (brew / python.org / apt / dnf),
+  the macOS python3.9 trap, the Windows Store-alias trap, and the
+  `PRISMA_MOCK=1` no-tenant tryout path.
+- **CHG:** `install.sh` failure paths are now guided, not fatal-and-cryptic:
+  OS-aware "no Python" instructions (brew / apt / dnf / python.org),
+  a pre-check for Debian/Ubuntu's missing `ensurepip` (`python3-venv`) with
+  the exact apt command, venv-creation failure hints (permissions /
+  `PRISMA_VENV`), and pip-install failure hints (offline / `HTTPS_PROXY`,
+  safe-to-re-run note). pip self-upgrade failure downgraded to a warning.
+- **CHG:** `install.bat` mirrors the same guidance (venv failure → Store-alias
+  hint + `PRISMA_VENV`; dependency failure → proxy/offline hint; re-run safe).
+- **DOC:** plugin/README Requirements notes the Debian/Ubuntu venv/pip split.
+
+## 0.6.3 — 2026-07-24
+
+Project-review cleanup: one correctness fix, docs refreshed, bilingual landing
+page.
+
+- **FIX:** `query_alerts` local severity/state filtering (the fallback path
+  used when the view rejects those filter rules) now runs on the **full record
+  set before truncation**. Previously it filtered the already-`limit`-capped
+  rows, so matches beyond the first `limit` records were silently dropped and
+  `total_matched` was under-counted.
+- **DOC:** repo-root README rewritten in English as the default landing page,
+  with a language switcher to the new full Traditional Chinese version
+  (`README.zh-TW.md`).
+- **DOC:** install.sh / install.bat completion messages now lead with the
+  marketplace install (Add from a repository) and mention the standalone
+  file-upload build only as the no-git fallback; plugin/README no longer
+  references the retired single `prisma-sase.plugin` filename.
+- **DOC:** root README repo-layout note corrected (3 catalog entries, not 2);
+  endpoints.md no longer claims `get_sase_status` fans out in parallel (its
+  sub-queries are sequential, best-effort).
+
 ## 0.6.2 — 2026-07-24
 
 Catalog rename (distribution only — no code changes).
