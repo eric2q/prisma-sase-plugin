@@ -28,24 +28,65 @@ for c in python3.13 python3.12 python3.11 python3.10 python3; do
 done
 if [ -z "$PY" ]; then
   echo "ERROR: no Python >= 3.10 found on PATH." >&2
-  echo "  macOS: 'brew install python@3.12' then re-run this script." >&2
-  echo "  (The system /usr/bin/python3 on macOS is often 3.9 -- too old.)" >&2
+  case "$(uname -s)" in
+    Darwin)
+      echo "  Install one, then re-run this script:" >&2
+      echo "   - Homebrew:           brew install python@3.12" >&2
+      echo "   - official installer: https://www.python.org/downloads/" >&2
+      echo "  (The system /usr/bin/python3 on macOS is often 3.9 -- too old.)" >&2
+      ;;
+    Linux)
+      echo "  Install with your distro's package manager, then re-run this script:" >&2
+      echo "   - Debian/Ubuntu: sudo apt update && sudo apt install python3 python3-venv python3-pip" >&2
+      echo "   - Fedora/RHEL:   sudo dnf install python3" >&2
+      ;;
+    *)
+      echo "  Install Python >= 3.10 (https://www.python.org/downloads/), then re-run this script." >&2
+      ;;
+  esac
   exit 1
 fi
 echo "-- using $PY ($("$PY" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])'))"
 
+# 1b) venv prerequisite: Debian/Ubuntu ship python3 WITHOUT ensurepip until
+#     python3-venv is installed -- catch that here with the exact fix instead
+#     of letting 'python3 -m venv' die with a confusing error.
+if ! "$PY" -c 'import ensurepip' >/dev/null 2>&1; then
+  PYMM="$("$PY" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+  echo "ERROR: $PY cannot create virtualenvs (module 'ensurepip' is missing)." >&2
+  echo "  Debian/Ubuntu fix: sudo apt install python$PYMM-venv   (or: python3-venv)" >&2
+  echo "  Then re-run this script." >&2
+  exit 1
+fi
+
 # 2) venv
 if [ ! -x "$VENV/bin/python" ]; then
   echo "-- creating venv at $VENV"
-  "$PY" -m venv "$VENV"
+  if ! "$PY" -m venv "$VENV"; then
+    echo "ERROR: could not create the virtualenv at $VENV." >&2
+    echo "  Check the message above; common causes are a partial Python install" >&2
+    echo "  or no write permission to $VENV. Fix it and re-run this script" >&2
+    echo "  (safe to re-run; or pick another location via PRISMA_VENV=/path)." >&2
+    exit 1
+  fi
 else
   echo "-- reusing existing venv at $VENV"
 fi
 
 # 3) deps
 echo "-- installing dependencies (fastmcp, httpx)"
-"$VENV/bin/python" -m pip install --quiet --upgrade pip
-"$VENV/bin/python" -m pip install --quiet -r "$DIR/mcp/requirements.txt"
+if ! "$VENV/bin/python" -m pip install --quiet --upgrade pip; then
+  echo "WARNING: pip self-upgrade failed -- continuing with the bundled pip." >&2
+fi
+if ! "$VENV/bin/python" -m pip install --quiet -r "$DIR/mcp/requirements.txt"; then
+  echo "ERROR: dependency install failed (fastmcp, httpx)." >&2
+  echo "  Most common cause: no network access to pypi.org (offline, firewall," >&2
+  echo "  or corporate proxy)." >&2
+  echo "   - behind a proxy: export HTTPS_PROXY=http://proxy:port  then re-run" >&2
+  echo "   - offline now:    re-run this script when you have network access" >&2
+  echo "  Re-running is safe -- the venv is kept and the install resumes." >&2
+  exit 1
+fi
 
 # 4) credential file template (the PRIMARY credential path -- on macOS, GUI
 #    apps often do not inherit launchctl setenv variables, so a chmod-600 env

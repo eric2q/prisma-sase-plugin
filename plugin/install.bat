@@ -32,15 +32,32 @@ echo -- using: %PYCMD%
 rem -- 2) venv --------------------------------------------------------------
 if not exist "%VENV%\Scripts\python.exe" (
   echo -- creating venv at %VENV%
-  %PYCMD% -m venv "%VENV%" || exit /b 1
+  %PYCMD% -m venv "%VENV%"
+  if errorlevel 1 (
+    echo ERROR: could not create the virtualenv at %VENV%. 1>&2
+    echo   Check the message above. If Python came from the Microsoft Store, 1>&2
+    echo   install the python.org build instead. Re-running install.bat is safe; 1>&2
+    echo   another location can be picked via: set PRISMA_VENV=C:\path 1>&2
+    exit /b 1
+  )
 ) else (
   echo -- reusing existing venv at %VENV%
 )
 
 rem -- 3) dependencies ------------------------------------------------------
 echo -- installing dependencies (fastmcp, httpx)
-"%VENV%\Scripts\python.exe" -m pip install --quiet --upgrade pip || exit /b 1
-"%VENV%\Scripts\python.exe" -m pip install --quiet -r "%DIR%mcp\requirements.txt" || exit /b 1
+"%VENV%\Scripts\python.exe" -m pip install --quiet --upgrade pip
+if errorlevel 1 echo WARNING: pip self-upgrade failed -- continuing with the bundled pip. 1>&2
+"%VENV%\Scripts\python.exe" -m pip install --quiet -r "%DIR%mcp\requirements.txt"
+if errorlevel 1 (
+  echo ERROR: dependency install failed ^(fastmcp, httpx^). 1>&2
+  echo   Most common cause: no network access to pypi.org ^(offline, firewall, 1>&2
+  echo   or corporate proxy^). 1>&2
+  echo    - behind a proxy: set HTTPS_PROXY=http://proxy:port  then re-run install.bat 1>&2
+  echo    - offline now:    re-run install.bat when you have network access 1>&2
+  echo   Re-running is safe -- the venv is kept and the install resumes. 1>&2
+  exit /b 1
+)
 
 rem -- 4) credential template ----------------------------------------------
 set "ENVF=%USERPROFILE%\.prisma-sase.env"

@@ -23,6 +23,9 @@ and ADEM experience scores in natural language.
 
 - **Python ≥ 3.10** (fastmcp's floor). ⚠️ On macOS the built-in `python3` is
   often **3.9** — it will NOT work. `install.sh` handles this for you.
+  On Debian/Ubuntu, `venv`/`pip` are separate packages — if missing,
+  `install.sh` prints the exact `sudo apt install python3-venv python3-pip`
+  fix.
 - macOS / Linux (`bash`), or Windows (see the **Windows install** section —
   Windows uses its own package variant `prisma-sase-windows.plugin`).
 - A Prisma SASE **read-only** service account (step 3 below).

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.4 — 2026-07-24
+
+Prerequisite guidance: assume the user may have NOTHING installed (not even
+Python) and guide every gap to resolution instead of dying with a raw error.
+
+- **NEW:** root README (EN + zh-TW) gains a **Prerequisites** section: a
+  check-it / fix-it table for Python ≥ 3.10, venv+pip, PyPI network access,
+  and git — with per-OS install commands (brew / python.org / apt / dnf),
+  the macOS python3.9 trap, the Windows Store-alias trap, and the
+  `PRISMA_MOCK=1` no-tenant tryout path.
+- **CHG:** `install.sh` failure paths are now guided, not fatal-and-cryptic:
+  OS-aware "no Python" instructions (brew / apt / dnf / python.org),
+  a pre-check for Debian/Ubuntu's missing `ensurepip` (`python3-venv`) with
+  the exact apt command, venv-creation failure hints (permissions /
+  `PRISMA_VENV`), and pip-install failure hints (offline / `HTTPS_PROXY`,
+  safe-to-re-run note). pip self-upgrade failure downgraded to a warning.
+- **CHG:** `install.bat` mirrors the same guidance (venv failure → Store-alias
+  hint + `PRISMA_VENV`; dependency failure → proxy/offline hint; re-run safe).
+- **DOC:** plugin/README Requirements notes the Debian/Ubuntu venv/pip split.
+
 ## 0.6.3 — 2026-07-24
 
 Project-review cleanup: one correctness fix, docs refreshed, bilingual landing

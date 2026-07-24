@@ -37,6 +37,30 @@ your OS:
 | Linux | **`prisma-sase-linux`** | `bash mcp/run.sh` |
 | Windows | **`prisma-sase-windows`** | `cmd /c mcp\run.cmd` |
 
+## Prerequisites
+
+Everything the plugin needs before installing. **Not sure? Just run the install
+script (step 1 below)** — it checks all of this and, for anything missing,
+prints the exact command to fix it, per OS. It is always safe to re-run.
+
+| You need | How to check | If it's missing |
+|---|---|---|
+| **Python ≥ 3.10** | `python3 --version` (Windows: `py --version` or `python --version`) | macOS: `brew install python@3.12`, or the [python.org](https://www.python.org/downloads/) installer. Debian/Ubuntu: `sudo apt install python3 python3-venv python3-pip`. Fedora/RHEL: `sudo dnf install python3`. Windows: [python.org](https://www.python.org/downloads/) installer — tick **"Add python.exe to PATH"** |
+| **venv + pip** (usually bundled with Python) | `python3 -m venv --help` | Debian/Ubuntu ship them separately: `sudo apt install python3-venv python3-pip`. Elsewhere they come with Python |
+| **Network to PyPI** (one-time) | — | Needed once so the install script can fetch `fastmcp` + `httpx`. Behind a corporate proxy: set `HTTPS_PROXY=http://proxy:port` first, then run the script |
+| **git** (marketplace install only) | `git --version` | macOS: `xcode-select --install`. Linux: `sudo apt install git` / `sudo dnf install git`. Windows: [git-scm.com](https://git-scm.com/). No git at all? Use the standalone `.plugin` file instead (see [Repo layout](#repo-layout)) |
+
+⚠️ Two known traps the script also detects and explains:
+- **macOS**: the built-in `/usr/bin/python3` is often **3.9** — too old. Install
+  a newer one; the script finds it automatically.
+- **Windows**: if typing `python` opens the **Microsoft Store**, that's an alias
+  stub, not Python. Install the real one from python.org (tick "Add to PATH"),
+  or disable the alias (Settings → Apps → Advanced app settings → App execution
+  aliases).
+
+No Prisma tenant yet? Everything can still be tried offline: set `PRISMA_MOCK=1`
+and the tools answer with realistic sample data — no credentials, no network.
+
 ## Install
 
 **1. One-time machine setup** (Python ≥ 3.10 + venv + dependencies + credential
