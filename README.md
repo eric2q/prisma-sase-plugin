@@ -90,12 +90,78 @@ repository** → enter this repo (`eric2q/prisma-sase-plugin` or the full git UR
 /plugin install prisma-sase-windows@prisma-sase  # Windows
 ```
 
-**3. Credentials** — fill in `~/.prisma-sase.env` (Windows:
+**3. Credentials — create the API key and fill it in** (walkthrough below).
+The four values go into `~/.prisma-sase.env` (Windows:
 `%USERPROFILE%\.prisma-sase.env`; the template was created by the install
-script). Four values: `PRISMA_CLIENT_ID`, `PRISMA_CLIENT_SECRET`,
-`PRISMA_TSG_ID`, `PRISMA_REGION`. Restart the Claude app. Full details,
-service-account creation walkthrough, selfcheck and troubleshooting:
-[`plugin/README.md`](plugin/README.md).
+script). Restart the Claude app afterwards. Full details, selfcheck and
+troubleshooting: [`plugin/README.md`](plugin/README.md).
+
+## Getting the API key (read-only service account)
+
+Prisma SASE's "API key" is a **service account's Client ID + Client Secret**,
+created in **Strata Cloud Manager (SCM)** in four steps. This plugin only
+needs a **view-only** role — that is both a security requirement and a design
+guarantee (the tool layer has no write path at all).
+
+> The figures are schematic redrawings of an actual walkthrough (layout,
+> fields, and warnings faithful to the original screens); tenant identifiers
+> are masked. The red badges number the flow end-to-end: ① gear → ② IAM →
+> ③ name → ④ Client ID → ⑤ Client Secret.
+
+**Step 1 — open Identity & Access Management.** In SCM, click the gear icon
+(**System Settings**, ①) at the bottom of the left menu → **Identity & Access
+Management** (②) → **Add Identity**. A three-page wizard opens
+(Identity Information → Client Credentials → Assign Roles).
+
+<img src="plugin/docs/images/scm-1-iam-menu.png" alt="SCM left menu: ① System Settings gear → ② Identity & Access Management" width="420">
+
+**Step 2 — Identity Information.** Identity Type = **Service Account**; pick a
+recognizable Service Account Name (③, e.g. `apikey` or `claude-mcp-readonly` —
+it becomes the Client ID prefix); Contact and Description are optional → **Next**.
+
+<img src="plugin/docs/images/scm-2-identity-info.png" alt="Add New Identity — Identity Information: Identity Type = Service Account, ③ name" width="640">
+
+**Step 3 — Client Credentials (the critical one).** The system generates the
+two values on the spot: **Client ID** (④) and **Client Secret** (⑤).
+
+⚠️ **The Client Secret is shown only this once** — the screen itself warns
+*"Please save the Client Secret, you will not be able to copy it after saving
+the new identity."* Copy it immediately (or **Download CSV File** — it contains
+the secret; store it in a password manager, then delete the file). If it's
+lost, the only fix is to regenerate (rotate) the secret for this account and
+update the env file. No separate TSG lookup is needed: **the digits after `@`
+in the Client ID are the TSG ID.** → **Next**.
+
+<img src="plugin/docs/images/scm-3-client-credentials.png" alt="Client Credentials: ④ Client ID (digits after @ are the TSG ID), ⑤ Client Secret (shown once; Download CSV File)" width="640">
+
+**Step 4 — Assign Roles (required despite the "Optional" label).** A service
+account with no role has **no permissions** — the plugin would get HTTP 403.
+Apps & Services = **All Apps & Services**, Role = **View Only Administrator** →
+**Submit**. View Only Administrator covers every feature of this plugin; do
+**not** grant Superuser or any writable role (least privilege). In multi-tenant
+(MSP) environments, create the identity under the correct TSG scope and bind
+only the tenants you need.
+
+<img src="plugin/docs/images/scm-4-assign-roles.png" alt="Assign Roles: All Apps & Services + View Only Administrator → Submit" width="640">
+
+**Fill in the env file** with the values from step 3 (`KEY=VALUE`, no quotes;
+masked here with asterisks):
+
+```
+PRISMA_CLIENT_ID=apikey@**********.iam.panserviceaccount.com
+PRISMA_CLIENT_SECRET=********************************
+PRISMA_TSG_ID=**********
+PRISMA_REGION=sg
+```
+
+`PRISMA_TSG_ID` = the digits after `@` in the Client ID; `PRISMA_REGION` =
+your tenant's actual region (e.g. `sg`, `us`, `de`). Then restart the Claude
+app and (optionally) verify with the server's `--selfcheck`.
+
+> ⚠️ **Never paste the Client Secret into a chat, message window, or document.**
+> The tools deliberately take no credential parameters — credentials only ever
+> enter the local env file. If the secret ever leaks, rotate it in SCM
+> immediately and update the env file.
 
 ## Update
 

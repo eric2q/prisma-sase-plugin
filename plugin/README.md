@@ -61,10 +61,42 @@ finds this venv automatically — you never edit `.mcp.json`.
 > - **"Add marketplace" only accepts git repos/URLs.** You do not need a GitHub
 >   repo — local installs go through **Upload from file**.
 
-**Step 3 — create a read-only service account.** In Strata Cloud Manager →
-Identity & Access: create a service account and grant it a **view-only** role
-bound to the TSG(s) you want to query. No role = no access; read-only is all
-this plugin needs.
+**Step 3 — create a read-only service account (the "API key").** The API key
+is a service account's **Client ID + Client Secret**, created in Strata Cloud
+Manager (SCM) in four steps (figures are schematic redrawings; tenant
+identifiers masked; red badges ①–⑤ number the flow):
+
+1. **Open Identity & Access Management** — gear icon (System Settings, ①) at
+   the bottom of SCM's left menu → **Identity & Access Management** (②) →
+   **Add Identity** (a three-page wizard opens).
+
+   <img src="docs/images/scm-1-iam-menu.png" alt="SCM left menu: ① System Settings gear → ② Identity & Access Management" width="380">
+
+2. **Identity Information** — Identity Type = **Service Account**; pick a
+   recognizable name (③, e.g. `apikey` — it becomes the Client ID prefix) →
+   Next.
+
+   <img src="docs/images/scm-2-identity-info.png" alt="Identity Information: Service Account + name" width="560">
+
+3. **Client Credentials** — the **Client ID** (④) and **Client Secret** (⑤)
+   are generated on the spot. ⚠️ **The secret is shown only this once** —
+   copy it immediately or **Download CSV File** (store in a password manager,
+   delete the file). Lost secrets can only be rotated. The digits after `@`
+   in the Client ID **are the TSG ID** — no separate lookup. → Next.
+
+   <img src="docs/images/scm-3-client-credentials.png" alt="Client Credentials: ④ Client ID (digits after @ = TSG ID), ⑤ Client Secret (shown once)" width="560">
+
+4. **Assign Roles** — labeled Optional but **required** (no role = HTTP 403):
+   Apps & Services = **All Apps & Services**, Role = **View Only
+   Administrator** → Submit. That covers everything this plugin does; don't
+   grant Superuser or any writable role (least privilege). MSP/multi-tenant:
+   create the identity under the correct TSG scope.
+
+   <img src="docs/images/scm-4-assign-roles.png" alt="Assign Roles: All Apps & Services + View Only Administrator → Submit" width="560">
+
+Never paste the Client Secret into a chat — the tools take no credential
+parameters by design; if a secret leaks, rotate it in SCM and update the env
+file.
 
 **Step 4 — provide the four variables.**
 

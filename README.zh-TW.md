@@ -85,12 +85,73 @@ OS 安裝 **prisma-sase-mac**、**prisma-sase-linux** 或 **prisma-sase-windows*
 /plugin install prisma-sase-windows@prisma-sase  # Windows
 ```
 
-**3. 填入憑證** —— 編輯 `~/.prisma-sase.env`(Windows:
-`%USERPROFILE%\.prisma-sase.env`;範本已由安裝腳本建立)。四個值:
-`PRISMA_CLIENT_ID`、`PRISMA_CLIENT_SECRET`、`PRISMA_TSG_ID`、
-`PRISMA_REGION`。填完後重啟 Claude 應用程式。完整細節、service account
-建立步驟、selfcheck 與疑難排解請見:[`plugin/README.md`](plugin/README.md)
-(英文)。
+**3. 憑證 —— 產生 API Key 並填入**(完整圖解見下一節)。四個值填進
+`~/.prisma-sase.env`(Windows:`%USERPROFILE%\.prisma-sase.env`;範本已由
+安裝腳本建立),填完後重啟 Claude 應用程式。更多細節、selfcheck 與疑難排解
+請見:[`plugin/README.md`](plugin/README.md)(英文)。
+
+## 產生 API Key(建立唯讀 Service Account)
+
+Prisma SASE 的「API key」就是一組 Service Account 的 **Client ID + Client
+Secret**,在 **Strata Cloud Manager(SCM)** 建立,共四步。本 plugin 只需
+**唯讀**權限 —— 這是資安要求,也是設計保證(工具層不存在任何寫入路徑)。
+
+> 本節示意圖依實際操作截圖重繪(版面、欄位、警語忠於原畫面),租戶識別值
+> 已遮罩。紅色標號為全流程連續編號:① 齒輪 → ② IAM → ③ 取名 →
+> ④ Client ID → ⑤ Client Secret。
+
+**步驟 1 —— 進入 Identity & Access Management。** SCM 左側欄最下方的齒輪
+圖示(**System Settings**,①)→ 選單第一項 **Identity & Access Management**
+(②),再點 **Add Identity** 開啟「Add New Identity」三步精靈
+(Identity Information → Client Credentials → Assign Roles)。
+
+<img src="plugin/docs/images/scm-1-iam-menu.png" alt="SCM 左側選單:① 齒輪(System Settings)→ ② Identity & Access Management" width="420">
+
+**步驟 2 —— Identity Information(身分資訊)。** Identity Type 選
+**Service Account**;Service Account Name(③)取一個好認的名稱(例如
+`apikey` 或 `claude-mcp-readonly` —— 此名稱會成為 Client ID 的前綴);
+Contact 與 Description 為選填 → **Next**。
+
+<img src="plugin/docs/images/scm-2-identity-info.png" alt="Add New Identity — Identity Information:Identity Type = Service Account;③ 取名" width="640">
+
+**步驟 3 —— Client Credentials(取得憑證,最關鍵的一步)。** 系統當場產生
+兩個值:**Client ID**(④)與 **Client Secret**(⑤)。
+
+⚠️ **Client Secret 只顯示這一次** —— 畫面警語原文:「Please save the Client
+Secret, you will not be able to copy it after saving the new identity.」請立刻
+用複製鈕存下,或按 **Download CSV File** 下載(CSV 內含 secret,存入密碼
+管理器後請刪除檔案)。忘了存,只能之後對此帳號重新產生 secret(輪替)再
+更新憑證檔。TSG ID 不用另外查 —— **Client ID 中 `@` 之後的那串數字就是
+TSG ID**。→ **Next**。
+
+<img src="plugin/docs/images/scm-3-client-credentials.png" alt="Client Credentials:④ Client ID(@ 後數字即 TSG)、⑤ Client Secret(僅此一次顯示;可 Download CSV File)" width="640">
+
+**步驟 4 —— Assign Roles(指派唯讀角色)。** 此頁標示 Optional,**但務必
+要做** —— 沒有指派角色的 service account 沒有任何權限,plugin 會收到 403。
+Apps & Services 選 **All Apps & Services**,Role 選 **View Only
+Administrator** → **Submit** 完成。View Only Administrator 已足夠本 plugin
+全部功能;請勿授予 Superuser 等可寫角色(最小權限原則)。多租戶(MSP)
+環境請留意 identity 建在正確的 TSG 範圍下,scope 只綁必要租戶。
+
+<img src="plugin/docs/images/scm-4-assign-roles.png" alt="Assign Roles:All Apps & Services + View Only Administrator → Submit" width="640">
+
+**填入憑證檔**(用步驟 3 記下的完整內容,KEY=VALUE 格式、不需引號;下例以
+星號遮罩,僅示意格式):
+
+```
+PRISMA_CLIENT_ID=apikey@**********.iam.panserviceaccount.com
+PRISMA_CLIENT_SECRET=********************************
+PRISMA_TSG_ID=**********
+PRISMA_REGION=sg
+```
+
+`PRISMA_TSG_ID` 就是 Client ID 中 `@` 之後的數字;`PRISMA_REGION` 填租戶
+實際 region(例如 `sg`、`us`、`de`)。填完重啟 Claude 應用程式,並可用
+server 的 `--selfcheck` 驗證。
+
+> ⚠️ **Client Secret 請勿貼進任何對話、聊天視窗或文件** —— 工具刻意不提供
+> 憑證參數,憑證只進本機憑證檔。若 secret 曾外流,請立即在 SCM 輪替,
+> 並更新憑證檔。
 
 ## 更新
 

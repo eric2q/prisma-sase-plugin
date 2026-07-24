@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.5 — 2026-07-24
+
+Credentials documentation: illustrated API-key walkthrough (from the Windows
+deployment guide v0.5.0).
+
+- **NEW:** `plugin/docs/images/` — four schematic SCM screenshots
+  (tenant identifiers masked, red badges ①–⑤ numbering the flow):
+  System Settings → IAM menu, Identity Information, Client Credentials,
+  Assign Roles.
+- **DOC:** root README (EN + zh-TW) gains a full **"Getting the API key
+  (read-only service account)"** section — the four SCM wizard steps with
+  figures, the secret-shown-only-once warning (copy / Download CSV File /
+  rotate-if-lost), TSG ID = the digits after `@` in the Client ID, the
+  "Assign Roles says Optional but is required (no role = 403)" trap,
+  View Only Administrator + least-privilege guidance, and the
+  never-paste-the-secret-into-chat rule.
+- **DOC:** plugin/README Step 3 expanded from two lines into the same
+  illustrated four-step walkthrough (images ship inside the plugin, so the
+  standalone .plugin packages carry them too).
+
 ## 0.6.4 — 2026-07-24
 
 Prerequisite guidance: assume the user may have NOTHING installed (not even
