@@ -30,6 +30,15 @@ import os
 import re
 import sys
 
+# --- Plugin version ----------------------------------------------------------
+# Single in-plugin source of truth so the server can SAY what version it is
+# (startup log, --selfcheck, get_sase_status.plugin_version) -- Desktop users
+# can only reach the MCP tools, so without this the version is unknowable
+# in-conversation. MUST be bumped in lockstep with .claude-plugin/
+# marketplace.json (all three entries); tools/build-standalone.py fails the
+# build on a mismatch, and PUBLISHING.md documents the step.
+PLUGIN_VERSION = "0.7.1"
+
 # --- Fixed, verified facts (design doc sec.3 -- do NOT change) ---------------
 AUTH_URL = "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
 API_BASE = "https://api.sase.paloaltonetworks.com"

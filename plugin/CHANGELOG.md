@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.1 — 2026-07-24
+
+The plugin can now say what version it is — previously the version lived
+only in marketplace.json, so a Desktop user (who can only reach the MCP
+tools) had no way to find out in-conversation.
+
+- **NEW:** `PLUGIN_VERSION` embedded in `config.py`; reported in the server
+  startup log, in `--selfcheck` (header line), and as
+  `get_sase_status.plugin_version` — ask Claude "which plugin version am I
+  running?" and it can answer.
+- **NEW:** `tools/build-standalone.py` fails the build if
+  `config.PLUGIN_VERSION` and the marketplace.json versions drift.
+- **DOC:** PUBLISHING.md release step now says bump four places in lockstep
+  (three marketplace entries + PLUGIN_VERSION) with the sync check;
+  SKILL.md tells Claude where to read the version and to compare against
+  the CHANGELOG when users ask.
+
 ## 0.7.0 — 2026-07-24
 
 PANW guidance (internal, 2026-07-24) folded in: the per-alert severity view
