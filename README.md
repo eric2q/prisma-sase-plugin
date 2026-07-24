@@ -8,13 +8,14 @@ Ask Claude things like *"現在 SASE 狀態如何?有沒有 P1 告警?"* or
 
 > **Read-only by design** — no write / commit / config-push path exists anywhere.
 
-This repo is a **plugin marketplace**: one code tree (`plugin/`), two catalog
-entries that differ only in how the server is launched. Install the one for
+This repo is a **plugin marketplace**: one code tree (`plugin/`), three OS-specific
+catalog entries that differ only in how the server is launched. Install the one for
 your OS:
 
 | Your OS | Install this plugin | Launcher |
 |---|---|---|
-| macOS / Linux | **`prisma-sase`** | `bash mcp/run.sh` |
+| macOS | **`prisma-sase-mac`** | `bash mcp/run.sh` |
+| Linux | **`prisma-sase-linux`** | `bash mcp/run.sh` |
 | Windows | **`prisma-sase-windows`** | `cmd /c mcp\run.cmd` |
 
 ## Install
@@ -35,13 +36,14 @@ plugin\install.bat
 
 *Claude Desktop / Cowork:* **Settings → Plugins → Add marketplace → Add from a
 repository** → enter this repo (`eric2q/prisma-sase-plugin` or the full git URL) → install
-**prisma-sase** (macOS/Linux) or **prisma-sase-windows** (Windows).
+**prisma-sase-mac**, **prisma-sase-linux**, or **prisma-sase-windows** to match your OS.
 
 *Claude Code (CLI):*
 
 ```
 /plugin marketplace add eric2q/prisma-sase-plugin
-/plugin install prisma-sase@prisma-sase          # macOS / Linux
+/plugin install prisma-sase-mac@prisma-sase      # macOS
+/plugin install prisma-sase-linux@prisma-sase    # Linux
 /plugin install prisma-sase-windows@prisma-sase  # Windows
 ```
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.2 — 2026-07-24
+
+Catalog rename (distribution only — no code changes).
+
+- **CHG:** marketplace entries are now OS-explicit: `prisma-sase-mac`,
+  `prisma-sase-linux`, `prisma-sase-windows` (mac/linux share the bash
+  launcher; windows uses cmd). Anyone who installed the old `prisma-sase`
+  entry should uninstall it and install the entry matching their OS after
+  updating the marketplace.
+- **CHG:** `tools/build-standalone.py` now emits three .plugin files.
+
+
 ## 0.6.1 — 2026-07-24
 
 Distribution change only — no tool behavior changes.

@@ -17,15 +17,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLUGIN_DIR = os.path.join(ROOT, "plugin")
 DIST = os.path.join(ROOT, "dist")
 
+_BASH = {"mcpServers": {"prisma-sase": {
+    "command": "bash", "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/run.sh"]}}}
+_CMD = {"mcpServers": {"prisma-sase": {
+    "command": "cmd", "args": ["/c", "${CLAUDE_PLUGIN_ROOT}\\mcp\\run.cmd"]}}}
 MCP_CONFIGS = {
-    "prisma-sase": {
-        "mcpServers": {"prisma-sase": {
-            "command": "bash",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/run.sh"]}}},
-    "prisma-sase-windows": {
-        "mcpServers": {"prisma-sase": {
-            "command": "cmd",
-            "args": ["/c", "${CLAUDE_PLUGIN_ROOT}\\mcp\\run.cmd"]}}},
+    "prisma-sase-mac": _BASH,
+    "prisma-sase-linux": _BASH,
+    "prisma-sase-windows": _CMD,
 }
 
 EXCLUDE_DIRS = {"__pycache__", ".git"}

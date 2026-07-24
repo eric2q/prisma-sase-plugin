@@ -31,7 +31,7 @@ and ADEM experience scores in natural language.
 
 > **Team install (recommended): via the GitHub marketplace.** Add the repo in
 > **Settings → Plugins → Add marketplace → Add from a repository**, then
-> install `prisma-sase` (macOS/Linux) or `prisma-sase-windows` (Windows) —
+> install `prisma-sase-mac`, `prisma-sase-linux`, or `prisma-sase-windows` (match your OS) —
 > updates then arrive with one click. See the repo-root README. The steps
 > below (upload from file) remain for machines without git access; machine
 > setup (step 1) is required either way.
