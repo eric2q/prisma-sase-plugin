@@ -104,12 +104,29 @@ def discover_insights(kind=None, tsg_id=None, region=None):
             "probe did not succeed -- the problem is auth, region, permissions "
             "or payload, NOT resource/view names. Fix that first (run "
             "--selfcheck) before trusting any probe result.")
+    # Split discoveries into "already the shipped default" (verified name that
+    # matches config.INSIGHTS_MAP -- no action needed) vs genuinely new/
+    # unconfirmed mappings worth persisting. Without this split, discovery
+    # used to tell every user to set PRISMA_INSIGHTS_MAP even when the result
+    # was identical to the built-in defaults.
     suggested = {}
+    matches_default = []
     for k, entries in working.items():
         best = entries[0]
+        current = config.INSIGHTS_MAP.get(k) or {}
+        if (current.get("resource") == best["resource"]
+                and current.get("view") == best["view"]
+                and current.get("verified", False)):
+            matches_default.append(k)
+            continue
         suggested[k] = {"resource": best["resource"], "view": best["view"],
                         "verified": True,
                         "payload": best.get("payload_variant", "time_filter")}
+    if matches_default:
+        notes.append(
+            "Already the shipped defaults (no PRISMA_INSIGHTS_MAP needed): %s "
+            "-- these discovered names match the verified mappings built into "
+            "this plugin version." % ", ".join(sorted(matches_default)))
     if suggested:
         notes.append(
             "To adopt these permanently, set the environment variable "
@@ -134,5 +151,6 @@ def discover_insights(kind=None, tsg_id=None, region=None):
                              "payload_variant": e["payload_variant"],
                              "record_count": e["record_count"]}
                             for e in v] for k, v in working.items()},
+            "matches_shipped_defaults": sorted(matches_default),
             "suggested_insights_map": suggested,
             "notes": notes}

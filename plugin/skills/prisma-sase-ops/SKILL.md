@@ -58,7 +58,10 @@ Every tool takes optional `tsg_id` and `region` to target a specific tenant
    probes candidate resource/view names read-only, separates auth problems from
    naming problems via a documented control probe, and returns a paste-ready
    `PRISMA_INSIGHTS_MAP`. Walk the user through adding that JSON (single line)
-   to `~/.prisma-sase.env`, then re-run the failing tool.
+   to `~/.prisma-sase.env`, then re-run the failing tool. **If the response
+   lists kinds under `matches_shipped_defaults`, tell the user those need no
+   env change** — the discovered names are already this version's built-in
+   verified defaults; only `suggested_insights_map` entries are worth persisting.
 
 When a request spans several of these, start with `get_sase_status`, then fire
 the specific tools **in parallel** for the parts that need detail.
