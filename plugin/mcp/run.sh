@@ -16,6 +16,15 @@ set -eu
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Breadcrumb log (cloud feedback #1): in remote/cloud sessions stderr is
+# invisible to the user, so a silent launch death leaves no trace. Record the
+# launch attempt (overwrite) here; later fatal errors append to the same file
+# (server.py does too). Purely diagnostic -- never fails the launch.
+LOG="$HOME/.prisma-sase-launch.log"
+_crumb() { echo "[$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo -)] $1" >> "$LOG" 2>/dev/null || true; }
+: > "$LOG" 2>/dev/null || true
+_crumb "run.sh invoked (dir=$DIR)"
+
 candidates=""
 if [ -n "${PRISMA_PYTHON:-}" ]; then
   candidates="$PRISMA_PYTHON"
@@ -25,14 +34,17 @@ candidates="$candidates $HOME/.prisma-sase-venv/bin/python python3.13 python3.12
 for py in $candidates; do
   if command -v "$py" >/dev/null 2>&1; then
     if "$py" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+      _crumb "launching with $(command -v "$py")"
       exec "$py" "$DIR/server.py" "$@"
     fi
   fi
 done
 
+_crumb "FATAL: no Python >= 3.10 found on PATH ($PATH)"
 echo "ERROR: prisma-sase MCP server needs Python >= 3.10 and none was found." >&2
 echo "  Fix one of:" >&2
 echo "   - run the plugin's install.sh to create ~/.prisma-sase-venv, or" >&2
 echo "   - install Python (e.g. 'brew install python@3.12'), or" >&2
 echo "   - set PRISMA_PYTHON to an absolute path of a Python >= 3.10." >&2
+echo "  Diagnostic breadcrumb written to $LOG" >&2
 exit 1

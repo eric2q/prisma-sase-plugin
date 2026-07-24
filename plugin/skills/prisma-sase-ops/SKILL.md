@@ -122,6 +122,45 @@ Tool responses may include:
 - `ok: false` with `error` + `hint` — relay the hint; it is written to be
   actionable (missing env var, wrong region, missing read-only role).
 
+## Bootstrap runbook — when this Skill loaded but the MCP tools are absent
+
+Structural fact of cloud/remote sessions (Cowork web, remote containers):
+**Skills sync into the session, but the plugin's MCP server may not be
+launched there** — a fresh container has no `~/.prisma-sase-venv`, no
+fastmcp/httpx, and no `~/.prisma-sase.env`. If `get_sase_status` /
+`query_alerts` etc. are NOT in your tool list, do not improvise answers and
+do not give up — bootstrap in ~2 minutes:
+
+1. **Diagnose** (also check `~/.prisma-sase-launch.log` — the launcher and
+   server leave a breadcrumb there when they die):
+   ```bash
+   bash <plugin>/mcp/run.sh --selfcheck    # or: python3 <plugin>/mcp/server.py --selfcheck
+   ```
+2. **Missing deps** → create the venv the launcher already knows to find:
+   ```bash
+   python3 -m venv ~/.prisma-sase-venv
+   ~/.prisma-sase-venv/bin/python -m pip install -r <plugin>/mcp/requirements.txt
+   ```
+3. **Missing credentials** → the user must stage them into the session
+   (their laptop's `~/.prisma-sase.env` does NOT follow them to the cloud).
+   Walk them through the supported path in the plugin README section
+   *"Cloud sessions: getting credentials in"* — staged env file +
+   `PRISMA_ENV_FILE=<path>`. **Never ask for or accept the Client Secret in
+   the conversation.** No credentials available? `PRISMA_MOCK=1` still
+   demonstrates every tool offline.
+4. **Call the tools without the MCP layer** — every tool is a plain
+   synchronous, importable function (keep relying on this; it is a design
+   guarantee):
+   ```python
+   import sys; sys.path.insert(0, "<plugin>/mcp")
+   from tools.status import get_sase_status
+   from tools.alerts import query_alerts
+   print(get_sase_status())
+   ```
+   Same client, same read-only guarantees, same output shapes as the MCP
+   tools — everything in this Skill about interpreting results applies
+   unchanged.
+
 ## References
 
 - `references/endpoints.md` — which tool maps to which API, filter syntax, and

@@ -170,7 +170,7 @@ data through the real code path — good for a first look or a customer demo.
 | `pip install fastmcp` → "No matching distribution found" | Misleading pip message — your Python is too old, the package exists | `python3 --version`; use a ≥ 3.10 interpreter (`install.sh` does this) |
 | "Missing required context / Missing PRISMA_CLIENT_ID…" although `launchctl getenv` shows values | macOS GUI apps launched from Finder/Dock are not guaranteed to inherit `launchctl setenv` (field-verified: on some machines the vars never arrive) | Use `~/.prisma-sase.env` (the primary path) — `install.sh` creates the template. `--selfcheck` shows which source supplied each value |
 | Insights tool returns HTTP 400 | Resource/view name or filter-payload shape doesn't match this tenant (the client already auto-tries time-filter and empty-filter variants) | Run `discover_insights` (or `--discover`), adopt the `suggested_insights_map` into `~/.prisma-sase.env` |
-| Alerts show only counts, `severity_unavailable: true` | The per-alert severity view (`prisma_sase_external_alerts_current`, tried automatically first) did not return usable rows on your tenant, so the tool fell back to the aggregate view (counts by MU/RN/SC) | `discover_insights(kind="alerts_detail")` probes it directly; if it works, report the outcome (the mapping gets marked verified) — if it doesn't exist, severity is an API limitation, not a missing setting |
+| Alerts show only counts, `severity_unavailable: true` | The per-alert severity view (`prisma_sase_external_alerts_current`, tried automatically first) did not return usable rows on your tenant, so the tool fell back to the aggregate view (counts by MU/RN/SC) | `discover_insights(kind="alerts_detail")` probes the candidates; if none work, capture the real view name from the SASE UI (dev tools → Network — step-by-step in the Skill's `references/endpoints.md`, "When discovery finds nothing") and set `PRISMA_INSIGHTS_MAP`; please report working names so they become shipped defaults |
 | Insights 400 with `DATA10003` / "Invalid resource" | The resource/view **name does not exist** on this tenant | Run `discover_insights` for working names; adopt its suggestions |
 | Insights 400 with `GCP10002` / "Unrecognized name: X" | The view **exists** — only field `X` in the payload is wrong | Don't change the view name; fix the property via `PRISMA_FILTER_TIME_PROP` / `_SEVERITY_PROP` / `_STATE_PROP` |
 | Insights 400 with "SELECT list must not be empty" | The query sent an empty SELECT — this can 400 even on an existing view | Discovery probes with `properties:["*"]` (always valid) precisely to avoid this trap; report it if a regular tool hits it |
@@ -210,6 +210,42 @@ upload the macOS/Linux variant on Windows; its `bash` command won't exist).
 `run.cmd` picks the interpreter the same way as `run.sh`: `PRISMA_PYTHON` →
 the `.prisma-sase-venv` venv → `py -3.13…-3.10` → `python`. WSL also works if
 you prefer the Linux flow, but it is not required.
+
+## Cloud sessions: getting credentials in
+
+Remote/cloud sessions (Cowork web, remote containers) run in a sandbox that
+**cannot read your laptop's home directory** — `~/.prisma-sase.env` does not
+follow you there, and two intuitive paths fail in confusing ways:
+
+- **Attaching the dotfile to the chat** silently fails: Finder hides
+  dotfiles, so the picker often sends nothing while you believe it was sent.
+- **Authorizing your home directory root** is typically not allowed.
+
+The supported path — stage a **non-dotfile copy** into a folder you can
+authorize/attach, then point the server at it:
+
+```bash
+# on your Mac: copy WITHOUT the leading dot so it is visible & attachable
+cp ~/.prisma-sase.env ~/Documents/<your-project>/prisma-sase.env
+```
+
+In the cloud session, set `PRISMA_ENV_FILE` to wherever the staged copy
+landed (the env-file loader honors it):
+
+```bash
+PRISMA_ENV_FILE=/path/to/prisma-sase.env
+```
+
+⚠️ **Never paste the Client Secret into the conversation** — the tools take
+no credential parameters by design, and a secret in chat is a secret in the
+transcript. Deliberately, credentials do **not** auto-sync to the cloud;
+staging is a manual, visible act. Remove the staged copy when the session's
+work is done. No credentials at hand? `PRISMA_MOCK=1` runs every tool
+offline with realistic sample data.
+
+If the plugin's tools don't appear in a cloud session at all, see the
+Skill's **bootstrap runbook** (SKILL.md) and the launch breadcrumb at
+`~/.prisma-sase-launch.log`.
 
 ## All environment variables
 

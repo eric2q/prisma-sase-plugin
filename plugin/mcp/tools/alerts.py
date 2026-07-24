@@ -134,6 +134,15 @@ def query_alerts(severity=None, state=None, hours=24, limit=config.DEFAULT_LIMIT
         "remote_networks": sum(_int_of(r, "rn_count") for r in agg_rows),
         "service_connections": sum(_int_of(r, "sc_count") for r in agg_rows),
     }
+    # Cloud feedback #5: on real tenants MU+RN+SC can cover only a fraction of
+    # total_count (e.g. 132 of 722) -- the view does not break the rest down.
+    # Pin the semantics explicitly so no reader treats the categorized sum as
+    # the total, or imagines a distribution for the remainder.
+    _covered = (summary["mobile_users"] + summary["remote_networks"]
+                + summary["service_connections"])
+    _uncategorized = summary["total"] - _covered
+    if _uncategorized > 0:
+        summary["other_uncategorized"] = _uncategorized
     out = {
         "ok": True,
         "window_hours": hours,
@@ -154,6 +163,12 @@ def query_alerts(severity=None, state=None, hours=24, limit=config.DEFAULT_LIMIT
                  "this tenant, severity is an API limitation, not a missing "
                  "setting."),
     }
+    if _uncategorized > 0:
+        out["category_note"] = (
+            "The MU/RN/SC breakdown covers %d of %d alerts; the remaining %d "
+            "are not categorized by this view -- do not treat the categorized "
+            "sum as the total, and do not guess how the remainder distributes."
+            % (_covered, summary["total"], _uncategorized))
     if len(agg_rows) > 1:
         out["sub_tenant_count"] = len(agg_rows)
         out["by_sub_tenant"] = [

@@ -15,10 +15,54 @@ Diagnostics:
 """
 import sys
 
+
+def _breadcrumb(msg):
+    """Append a diagnostic line to ~/.prisma-sase-launch.log; never raises.
+
+    Cloud feedback #1: in remote/cloud sessions the user cannot see stderr, so
+    a fatal init error leaves no trace. This file is the post-mortem trail
+    (run.sh writes the launch attempt; fatal paths here append the cause).
+    """
+    try:
+        import datetime
+        import os as _os
+        with open(_os.path.expanduser("~/.prisma-sase-launch.log"), "a",
+                  encoding="utf-8") as fh:
+            fh.write("[%s] %s\n" % (
+                datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), msg))
+    except Exception:
+        pass
+
+
+def _venv_fix_lines(req_path):
+    """The recommended dependency fix: a dedicated venv, matching run.sh's
+    search order -- NOT the system interpreter (Debian/Ubuntu PEP 668 blocks
+    system pip installs; cloud feedback #4)."""
+    import os as _os
+    server_path = _os.path.join(_os.path.dirname(_os.path.abspath(req_path)),
+                                "server.py")
+    if sys.platform == "win32":
+        venv_py = "%USERPROFILE%\\.prisma-sase-venv\\Scripts\\python.exe"
+        return [
+            "  py -3 -m venv %USERPROFILE%\\.prisma-sase-venv",
+            "  %s -m pip install -r %s" % (venv_py, req_path),
+            "  %s %s --selfcheck" % (venv_py, server_path),
+        ]
+    venv_py = "~/.prisma-sase-venv/bin/python"
+    return [
+        "  python3 -m venv ~/.prisma-sase-venv",
+        "  %s -m pip install -r %s" % (venv_py, req_path),
+        "  PRISMA_MOCK=1 %s %s --selfcheck" % (venv_py, server_path),
+    ]
+
+
 # --- Hard floor FIRST: fastmcp needs Python >= 3.10 (v0.2.0, install report #3/#5).
 # On macOS the system python3 is often 3.9 -- without this guard the server just
 # dies and the tools silently never appear.
 if sys.version_info < (3, 10):
+    _breadcrumb("FATAL: Python %d.%d.%d at %s is below the 3.10 floor"
+                % (sys.version_info[0], sys.version_info[1],
+                   sys.version_info[2], sys.executable))
     sys.stderr.write(
         "ERROR: prisma-sase MCP server requires Python >= 3.10; this is "
         "Python %d.%d.%d at %s\n"
@@ -77,10 +121,14 @@ def _selfcheck():
         print("  placeholders: none detected")
 
     if missing_pkgs:
-        print("\nRESULT: NOT READY -- install deps into THIS interpreter:")
-        print("  %s -m pip install -r %s" % (
-            d["executable"],
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")))
+        req = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "requirements.txt")
+        print("\nRESULT: NOT READY -- install the dependencies into a "
+              "dedicated venv (run.sh/run.cmd find it automatically):")
+        for line in _venv_fix_lines(req):
+            print(line)
+        print("  (avoid installing into the system interpreter -- "
+              "Debian/Ubuntu block system pip installs, PEP 668)")
         return 1
     if d["mock_mode"]:
         print("\nRESULT: READY (mock mode -- no live API calls)")
@@ -101,13 +149,18 @@ _missing_pkgs = [p for p in ("fastmcp", "httpx")
                  if importlib.util.find_spec(p) is None]
 if _missing_pkgs:
     _req = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")
+    _breadcrumb("FATAL: missing package(s) %s for %s"
+                % (", ".join(_missing_pkgs), sys.executable))
     sys.stderr.write(
         "ERROR: missing package(s) %s for this interpreter:\n"
         "       %s\n"
-        "Fix:   %s -m pip install -r %s\n"
-        "       (or run the plugin's install.sh, or point PRISMA_PYTHON at a\n"
-        "       Python >= 3.10 that has the dependencies installed)\n"
-        % (", ".join(_missing_pkgs), sys.executable, sys.executable, _req))
+        "Fix -- install into a dedicated venv (run.sh finds it automatically;\n"
+        "avoid the system interpreter, Debian/Ubuntu block it via PEP 668):\n"
+        "%s\n"
+        "       (or run the plugin's install.sh / install.bat, or point\n"
+        "       PRISMA_PYTHON at a Python >= 3.10 that has the deps)\n"
+        % (", ".join(_missing_pkgs), sys.executable,
+           "\n".join(_venv_fix_lines(_req))))
     sys.exit(1)
 
 from typing import Optional

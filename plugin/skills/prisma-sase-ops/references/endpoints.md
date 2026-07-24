@@ -73,6 +73,30 @@ are stable (queries pass through to BigQuery; `GCP*` codes come from there,
 classification (`not_found` vs `exists_field_mismatch`), and a filter-only
 fallback matching what the live-verified query tools send.
 
+## When discovery finds nothing: capture the real names from the SASE UI
+
+This is a **first-class workflow**, not a last resort — the UI itself calls
+the same query API, so one captured request gives you the exact
+resource/view and payload shape your tenant version uses:
+
+1. In Strata Cloud Manager, open the Insights dashboard that **shows the
+   data you want** (e.g. the alerts list with severities visible).
+2. Open the browser dev tools → **Network** tab → filter for `query`.
+3. Refresh the dashboard and click a request to
+   `/insights/v3.0/resource/query/<resource>/<view>` (some resources are
+   single-segment — no `<view>` part).
+4. From the request: copy the **resource/view names** (URL) and note the
+   **filter/properties payload** (Request body) — the time property name and
+   any severity/state property names.
+5. Adopt them without touching code — one line in `~/.prisma-sase.env`:
+   ```
+   PRISMA_INSIGHTS_MAP={"alerts_detail":{"resource":"<from URL>","view":"<from URL or empty>","verified":true}}
+   ```
+   plus `PRISMA_FILTER_TIME_PROP` / `_SEVERITY_PROP` / `_STATE_PROP` if the
+   payload showed different property names.
+6. Re-run the failing tool; then please report the working names (GitHub
+   issue) so they can become shipped defaults for your tenant version.
+
 ## ADEM score query (confirmed shape)
 
 ```
