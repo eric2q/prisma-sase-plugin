@@ -22,7 +22,9 @@ Then tell the team the repo slug — that's all they need for
    ```bash
    PRISMA_MOCK=1 python3 plugin/mcp/server.py --selfcheck
    ```
-3. Record changes in `plugin/CHANGELOG.md`.
+3. Record changes in `plugin/CHANGELOG.md` — this is the **user-facing version
+   history** (linked from both root READMEs), so write it for users: what was
+   fixed (`FIX`), what's new (`NEW`), what behaves differently (`CHG`).
 4. **Bump `version` in `.claude-plugin/marketplace.json` — all three entries**
    (single source of truth for what users see; keep the entries in lockstep).
 5. Commit + push:
