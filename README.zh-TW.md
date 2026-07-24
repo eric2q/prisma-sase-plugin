@@ -173,6 +173,10 @@ Claude Code 也會在背景自動刷新 marketplace。版本由
 `.claude-plugin/marketplace.json` 的 `version` 欄位釘住 —— 該欄位變更時使用者
 才會看到更新(見 [`PUBLISHING.md`](PUBLISHING.md))。
 
+**每一版改了什麼** —— 修了哪些 bug、新增哪些功能、行為有什麼變化 —— 都逐版
+記錄在 [`plugin/CHANGELOG.md`](plugin/CHANGELOG.md)(條目標記
+`FIX` / `NEW` / `CHG`,英文)。
+
 ## 關於託管方式
 
 本 repository 是**公開**的 —— 任何人不需 GitHub 認證即可加入 marketplace 並
@@ -189,6 +193,7 @@ Claude Code 也會在背景自動刷新 marketplace。版本由
 ```
 .claude-plugin/marketplace.json   # 目錄:3 個 OS 專屬項目,共用同一程式樹、各自的啟動器
 plugin/                           # 單一程式樹(server + skills + 安裝腳本)
+plugin/CHANGELOG.md               # 版本歷史:每一版的 bug 修正與新功能
 tools/build-standalone.py         # 選用:建置離線 .plugin 檔(供「Upload from file」安裝)
 PUBLISHING.md                     # 維護者發佈流程
 README.zh-TW.md                   # 本頁(繁體中文版)

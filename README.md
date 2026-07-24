@@ -182,6 +182,10 @@ Claude Code also refreshes marketplaces in the background. Versions are pinned
 by the `version` field in `.claude-plugin/marketplace.json` — users see an
 update when it changes (see [`PUBLISHING.md`](PUBLISHING.md)).
 
+**What changed in each version** — bug fixes, new features, behavior changes —
+is recorded per release in [`plugin/CHANGELOG.md`](plugin/CHANGELOG.md)
+(entries are tagged `FIX` / `NEW` / `CHG`).
+
 ## Notes on hosting
 
 This repository is **public** — anyone can add the marketplace and install
@@ -200,6 +204,7 @@ auto-update fine.
 ```
 .claude-plugin/marketplace.json   # catalog: 3 OS-specific entries, shared source, per-OS launcher
 plugin/                           # the single code tree (server + skills + installers)
+plugin/CHANGELOG.md               # version history: bug fixes & new features per release
 tools/build-standalone.py         # optional: build offline .plugin files (file-upload installs)
 PUBLISHING.md                     # maintainer release workflow
 README.zh-TW.md                   # this page in Traditional Chinese
