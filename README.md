@@ -92,17 +92,18 @@ Claude Code also refreshes marketplaces in the background. Versions are pinned
 by the `version` field in `.claude-plugin/marketplace.json` — users see an
 update when it changes (see [`PUBLISHING.md`](PUBLISHING.md)).
 
-## Private repository notes
+## Notes on hosting
 
-Manual add/update uses your normal git credentials (`gh auth login` /
-`gh auth setup-git`, SSH agent). Background auto-update of **private** repos
-over HTTPS is limited by design; for a smooth private-marketplace experience:
+This repository is **public** — anyone can add the marketplace and install
+without GitHub authentication, and background auto-updates just work.
 
-- run `gh auth setup-git` once on each machine, and
-- set `CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1` so a failed background
-  pull keeps the working copy (manual update still works normally).
-
-SSH remotes with a loaded `ssh-agent` key auto-update fine.
+If you fork and host this as a **private** repo instead: manual add/update
+uses your normal git credentials (`gh auth setup-git`, SSH agent), but
+background auto-update of private repos over HTTPS is limited by design —
+run `gh auth setup-git` on each machine and set
+`CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1` so a failed background
+pull keeps the working copy. SSH remotes with a loaded `ssh-agent` key
+auto-update fine.
 
 ## Repo layout
 
