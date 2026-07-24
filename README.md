@@ -1,37 +1,31 @@
 # Prisma SASE Plugin Marketplace
 
+**English** | [繁體中文](README.zh-TW.md)
+
 Read-only **Prisma SASE / Prisma Access** tools for Claude Desktop (Cowork) and
 Claude Code: a Python MCP server (6 query tools) plus the `prisma-sase-ops`
 Skill (decision tree, thresholds, runbooks, weekly-report template).
-Ask Claude things like *"現在 SASE 狀態如何?有沒有 P1 告警?"* or
+Ask Claude things like *"how is SASE doing right now — any P1 alerts?"* or
 *"list tunnel status — which are down?"* against your own tenant.
 
 > **Read-only by design** — no write / commit / config-push path exists anywhere.
 
-## 關於本專案與免責聲明 / About & Disclaimer
+## About & Disclaimer
 
-**中文** — 本專案作者任職於 Palo Alto Networks,職務為 Solutions Consultant。
-這是作者為了向客戶推廣 Prisma SASE、以個人時間開發的 **side project**:
-**並非 Palo Alto Networks 官方開發、維護或背書,不代表公司立場;
-內容與查詢結果亦不保證正確性、完整性或適用性** —— 使用前請自行評估,
-重要決策請以官方文件與官方支援管道為準。本專案以開源方式發佈
-(MIT License,見 [LICENSE](LICENSE)),歡迎透過 GitHub Issues / PR
-提出任何意見與回饋,也歡迎**無償**引用、修改與再利用。
+The author works at Palo Alto Networks as a Solutions Consultant. This is a
+personal **side project** built on personal time to help introduce Prisma SASE
+to customers. **It is not developed, maintained, or endorsed by Palo Alto
+Networks and does not represent the company; no guarantee is made as to the
+correctness, completeness, or fitness of its content or query results** —
+evaluate before use, and rely on official documentation and support channels
+for important decisions. The project is open source under the
+[MIT License](LICENSE); feedback and contributions are welcome via GitHub
+Issues / PRs, and everyone is free to use, modify, and reference it at no cost.
 
-**English** — The author works at Palo Alto Networks as a Solutions
-Consultant. This is a personal **side project** built on personal time to
-help introduce Prisma SASE to customers. **It is not developed, maintained,
-or endorsed by Palo Alto Networks and does not represent the company; no
-guarantee is made as to the correctness, completeness, or fitness of its
-content or query results** — evaluate before use, and rely on official
-documentation and support channels for important decisions. The project is
-open source under the [MIT License](LICENSE); feedback and contributions
-are welcome via GitHub Issues / PRs, and everyone is free to use, modify,
-and reference it at no cost.
-
-*Palo Alto Networks、Prisma 及相關標誌為 Palo Alto Networks, Inc. 之商標。
-Palo Alto Networks, Prisma, and related marks are trademarks of
+*Palo Alto Networks, Prisma, and related marks are trademarks of
 Palo Alto Networks, Inc.*
+
+## What's in the box
 
 This repo is a **plugin marketplace**: one code tree (`plugin/`), three OS-specific
 catalog entries that differ only in how the server is launched. Install the one for
@@ -108,10 +102,11 @@ auto-update fine.
 ## Repo layout
 
 ```
-.claude-plugin/marketplace.json   # catalog: 2 entries, shared source, per-OS launcher
+.claude-plugin/marketplace.json   # catalog: 3 OS-specific entries, shared source, per-OS launcher
 plugin/                           # the single code tree (server + skills + installers)
 tools/build-standalone.py         # optional: build offline .plugin files (file-upload installs)
 PUBLISHING.md                     # maintainer release workflow
+README.zh-TW.md                   # this page in Traditional Chinese
 ```
 
 Standalone `.plugin` files (for machines without git access) can still be built

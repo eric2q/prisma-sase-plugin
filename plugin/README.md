@@ -48,7 +48,9 @@ server starts with an offline selfcheck. The plugin's launcher (`mcp/run.sh`)
 finds this venv automatically — you never edit `.mcp.json`.
 
 **Step 2 — install the plugin file.** In Claude Desktop:
-**Settings → Plugins → Upload from file** → pick `prisma-sase.plugin`.
+**Settings → Plugins → Upload from file** → pick the variant matching your OS
+(`prisma-sase-mac.plugin` / `prisma-sase-linux.plugin` /
+`prisma-sase-windows.plugin`, built via `python3 tools/build-standalone.py`).
 
 > ⚠️ Two paths that look right but are NOT an install:
 > - **Putting the plugin folder into a Project folder does nothing** — Claude

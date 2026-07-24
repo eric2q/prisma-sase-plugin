@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.3 — 2026-07-24
+
+Project-review cleanup: one correctness fix, docs refreshed, bilingual landing
+page.
+
+- **FIX:** `query_alerts` local severity/state filtering (the fallback path
+  used when the view rejects those filter rules) now runs on the **full record
+  set before truncation**. Previously it filtered the already-`limit`-capped
+  rows, so matches beyond the first `limit` records were silently dropped and
+  `total_matched` was under-counted.
+- **DOC:** repo-root README rewritten in English as the default landing page,
+  with a language switcher to the new full Traditional Chinese version
+  (`README.zh-TW.md`).
+- **DOC:** install.sh / install.bat completion messages now lead with the
+  marketplace install (Add from a repository) and mention the standalone
+  file-upload build only as the no-git fallback; plugin/README no longer
+  references the retired single `prisma-sase.plugin` filename.
+- **DOC:** root README repo-layout note corrected (3 catalog entries, not 2);
+  endpoints.md no longer claims `get_sase_status` fans out in parallel (its
+  sub-queries are sequential, best-effort).
+
 ## 0.6.2 — 2026-07-24
 
 Catalog rename (distribution only — no code changes).

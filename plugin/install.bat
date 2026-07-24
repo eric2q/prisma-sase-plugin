@@ -69,8 +69,11 @@ echo == install complete ==
 echo venv python : %VENV%\Scripts\python.exe
 echo next steps  :
 echo   1. Fill in your read-only service-account values in %ENVF%
-echo   2. In Claude Desktop: Settings ^> Plugins ^> Upload from file
-echo      -- upload prisma-sase-windows.plugin (the Windows variant).
+echo   2. Install the plugin -- recommended: add the GitHub marketplace
+echo      (Settings ^> Plugins ^> Add marketplace ^> Add from a repository),
+echo      then install prisma-sase-windows (the Windows variant).
+echo      No git access? Build and upload a standalone file instead:
+echo      python tools\build-standalone.py, then Settings ^> Plugins ^> Upload from file.
 echo      (mcp\run.cmd finds this venv automatically -- no config edits needed.)
 echo   3. Verify:  "%VENV%\Scripts\python.exe" "%DIR%mcp\server.py" --selfcheck
 echo   4. First run against a new tenant: ask Claude to run discover_insights
