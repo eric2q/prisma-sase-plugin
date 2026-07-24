@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.7.2 — 2026-07-24
+
+Driven by the cloud-session field report (Cowork remote sandbox, region sg):
+the plugin must survive environments where the MCP server never starts and
+stderr is invisible.
+
+- **NEW (cloud #1):** SKILL.md **bootstrap runbook** — when the Skill loaded
+  but the MCP tools are absent (cloud/remote sessions), Claude now has the
+  documented 2-minute recovery path: selfcheck → venv + deps → staged
+  credentials → **direct-import fallback** (every tool is a plain
+  synchronous importable function — now an explicit design guarantee).
+- **NEW (cloud #1):** launch breadcrumb at `~/.prisma-sase-launch.log` —
+  run.sh records the attempt and chosen interpreter; run.sh and server.py
+  append fatal causes (no Python, version floor, missing deps). Post-mortem
+  trail for environments where stderr is unreadable.
+- **NEW (cloud #2):** plugin/README section **"Cloud sessions: getting
+  credentials in"** — the supported staging path (`cp` to a non-dotfile
+  copy in an authorizable folder + `PRISMA_ENV_FILE`), the dotfile-attachment
+  trap, and the explicit rule that secrets never go through the chat.
+- **CHG (cloud #3):** alerts_detail discovery candidates widened (siblings
+  of `prisma_sase_external_alerts_current`, view-form variants); the
+  "capture the real query from the SASE UI dev tools → PRISMA_INSIGHTS_MAP"
+  path is now a **documented first-class workflow** (endpoints.md
+  step-by-step, linked from discovery notes and README troubleshooting).
+- **FIX (cloud #4):** NOT READY guidance (selfcheck + dependency pre-check)
+  now prescribes the dedicated venv (matching run.sh's search order) instead
+  of `pip install` into the system interpreter, which Debian/Ubuntu block
+  (PEP 668).
+- **FIX (cloud #5):** aggregate alert counts pin their semantics: when
+  MU+RN+SC covers less than `total` (live: 132 of 722), the response carries
+  `summary_counts.other_uncategorized` and a `category_note` ("do not treat
+  the categorized sum as the total"), propagated into `get_sase_status`.
+- **FIX (cloud, polish):** `get_sase_status`'s experience section now
+  includes `no_data_debug` when present — its own note told readers to look
+  at a field that had been sliced away.
+
 ## 0.7.1 — 2026-07-24
 
 The plugin can now say what version it is — previously the version lived

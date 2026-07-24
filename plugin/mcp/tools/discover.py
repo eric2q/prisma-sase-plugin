@@ -44,6 +44,14 @@ CANDIDATES = [
     ("alerts_detail",   "prisma_sase_external_alerts_current", ""),
     ("alerts_detail",   "alerts",          "alert_list"),
     ("alerts_detail",   "alerts",          "alert_detail"),
+    # Cloud feedback #3 (sg tenant: all three above were DATA10003): widen the
+    # sweep -- single-segment siblings of the guidance name, plus view-form
+    # variants under the alerts resource. All read-only probes; speculative
+    # candidates are cheap and clearly classified now.
+    ("alerts_detail",   "prisma_sase_external_alerts", ""),
+    ("alerts_detail",   "prisma_sase_external_alerts_history", ""),
+    ("alerts_detail",   "alerts",          "external_alerts_current"),
+    ("alerts_detail",   "alerts",          "prisma_sase_external_alerts_current"),
     # connected users -- users/users_list live-verified;
     # users/all/user_list_all is named in PANW guidance
     ("connected_users", "users",           "users_list"),
@@ -231,8 +239,11 @@ def discover_insights(kind=None, tsg_id=None, region=None):
         notes.append(
             "No working candidate found for: %s. The tenant may expose these "
             "under other names -- capture one working query from the SASE UI "
-            "(browser dev tools) or the API reference for this tenant version, "
-            "then set PRISMA_INSIGHTS_MAP manually." % ", ".join(missing))
+            "(browser dev tools, Network tab: the UI calls the same "
+            "/insights/v3.0/resource/query/ API), then set "
+            "PRISMA_INSIGHTS_MAP manually. Step-by-step: the Skill's "
+            "references/endpoints.md, section 'When discovery finds nothing'."
+            % ", ".join(missing))
 
     return {"ok": True,
             "control_probe_ok": control_ok,

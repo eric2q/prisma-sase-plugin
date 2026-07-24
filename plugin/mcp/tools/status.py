@@ -37,6 +37,9 @@ def get_sase_status(tsg_id=None, region=None):
             # it doesn't read as a mismatch against the UI's per-tenant number.
             sections["alerts"]["sub_tenant_count"] = a["sub_tenant_count"]
             sections["alerts"]["aggregation_note"] = a.get("aggregation_note")
+        if a.get("category_note"):
+            # Cloud feedback #5: MU/RN/SC may cover only part of the total.
+            sections["alerts"]["category_note"] = a["category_note"]
         if a.get("field_note"):
             sections["alerts"]["field_note"] = a["field_note"]
     else:
@@ -60,6 +63,10 @@ def get_sase_status(tsg_id=None, region=None):
                                   "rating": ex.get("rating")}
         if ex.get("note"):
             sections["experience"]["note"] = ex["note"]
+        if ex.get("no_data_debug"):
+            # Cloud feedback (polish): the note tells readers to "see
+            # no_data_debug" -- so it must actually be present here.
+            sections["experience"]["no_data_debug"] = ex["no_data_debug"]
     else:
         sections["experience"] = {"error": ex.get("error"), "hint": ex.get("hint")}
 
