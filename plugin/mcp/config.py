@@ -36,6 +36,19 @@ API_BASE = "https://api.sase.paloaltonetworks.com"
 INSIGHTS_QUERY_PATH = "/insights/v3.0/resource/query/{resource}/{view}"
 ADEM_BASE_PATH = "/adem/telemetry/v2"
 
+
+def insights_path(resource, view=None):
+    """Query path for a resource/view pair OR a single-segment resource.
+
+    Most Insights views are addressed as <resource>/<view>, but some official
+    resources are single-segment (PANW guidance 2026-07-24), e.g.
+    ``prisma_sase_external_alerts_current`` -- the per-alert severity view --
+    is queried as /resource/query/prisma_sase_external_alerts_current with no
+    view component.
+    """
+    base = "/insights/v3.0/resource/query/" + resource
+    return base + "/" + view if view else base
+
 # --- v0.2.0: placeholder detection + env-file fallback -----------------------
 _PLACEHOLDER_RE = re.compile(r"^\s*\$\{[A-Za-z_][A-Za-z0-9_]*\}\s*$")
 
@@ -134,7 +147,10 @@ DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
 
 # --- Token management (design doc sec.3 / sec.4.1) ---------------------------
-TOKEN_LIFETIME_FALLBACK = 900   # 15 min, used only if 'expires_in' is absent
+# PANW guidance (2026-07-24): expires_in is guaranteed 900s; API-gateway rate
+# limit is 1000 calls/min per source IP (429), >4000/min -> 403 + 10-min IP
+# block -- see client._request's 403 hint.
+TOKEN_LIFETIME_FALLBACK = 900   # 15 min, confirmed guaranteed value
 TOKEN_RENEW_MARGIN = 120        # refresh when <=2 min remain -> ~13 min effective TTL
 
 # --- Insights 3.0 resource/view map ------------------------------------------
@@ -149,14 +165,19 @@ TOKEN_RENEW_MARGIN = 120        # refresh when <=2 min remain -> ~13 min effecti
 #   * alerts -> alerts/alerts_list              CONFIRMED but it is an AGGREGATE
 #     view (fields: sub_tenant_id/total_count/mu_count/rn_count/sc_count) --
 #     counts only, NO per-alert severity/message.
-#   * alerts_detail: the per-alert view is NOT yet identified -- candidates are
-#     probed by discover_insights(kind="alerts_detail").
+#   * alerts_detail -> prisma_sase_external_alerts_current (single-segment
+#     resource, no view): per PANW guidance (2026-07-24) this is the correct
+#     Insights 3.0 view for PER-ALERT rows with severity (properties include
+#     alert_id, severity, severity_id, state e.g. "Raised"/"RaisedChild",
+#     updated_time). Marked unverified until confirmed on a live tenant --
+#     discover_insights(kind="alerts_detail") probes it first.
 # "payload" records which filter shape the view accepts (informational; the
 # client auto-injects a time filter when the caller provides no rules).
 INSIGHTS_MAP = {
     "alerts":          {"resource": "alerts", "view": "alerts_list", "verified": True,
                         "payload": "empty_filter", "aggregate": True},
-    "alerts_detail":   {"resource": "alerts", "view": "alert_list", "verified": False},
+    "alerts_detail":   {"resource": "prisma_sase_external_alerts_current",
+                        "view": "", "verified": False},
     "connected_users": {"resource": "users",   "view": "users_list",  "verified": True,
                         "payload": "time_filter"},
     "remote_networks": {"resource": "tunnels", "view": "tunnel_list", "verified": True,

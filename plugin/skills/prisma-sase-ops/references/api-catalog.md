@@ -56,22 +56,35 @@ Names actually documented on pan.dev:
 - `users` active-user list view (per-user rows with connection details)
 - `users/branch_connected_entity_count` — connected entities for branch users
 - Named "general resources" in the query-language docs: `tunnel_status`,
-  `open_alerts_count_timeseries`, `prisma_sase_external_alerts_current`;
-  custom resources like `location_rn_bandwidth`,
-  `location_gp_mobile_users_logins`
+  `open_alerts_count_timeseries`; custom resources like
+  `location_rn_bandwidth`, `location_gp_mobile_users_logins`
+- **`prisma_sase_external_alerts_current`** — a **single-segment** 3.0
+  resource (queried with no view component) that returns **per-alert rows
+  with severity** (`alert_id`, `severity`, `severity_id`, `state`,
+  `updated_time`). Per PANW guidance (2026-07-24) this is the correct
+  severity source; it is the shipped `alerts_detail` default, pending live
+  verification.
+- Further views named in PANW guidance: `locations/location_summary`,
+  `locations/noc_location_list_rn_sc`, `sites/rn_list`, `sites/sc_list`,
+  `sites/site_status`, `users/all/user_list_all`, `activity_insights/threats`,
+  `activity_insights/domains`. `incidents/incidents_list` is a dead end
+  (stable 400) — incident data lives in the **SCM Unified Incident Framework
+  REST API**, not Insights.
 
 Live-verified on a real tenant by this plugin (see `config.INSIGHTS_MAP`):
-`users/users_list`, `tunnels/tunnel_list`, `alerts/alerts_list` (aggregate).
+`users/users_list`, `tunnels/tunnel_list`, `alerts/alerts_list` (aggregate;
+one row per sub-tenant, counts = raised within the time window).
 
 ## Legacy Insights 1.0 / 2.0 (context for older tenants)
 
 Panorama-managed / pre-TSG tenants use a **different base URL and shape**:
 `https://pa-<region>.api.prismaaccess.com/api/sase/v{1,2}.0/resource/query/...`
 (1.0 adds `/tenant/{super_tenant_id}` and an Insights-UI API key instead of
-OAuth2). Resources there include `prisma_sase_external_alerts_current` —
-**per-alert rows with severity**. This plugin targets 3.0 only; if a tenant
-rejects 3.0 everywhere (control probe fails with valid auth), it may be a 1.0/
-2.0-era tenant — that's an API-generation mismatch, not a mapping problem.
+OAuth2). The same resource names (e.g.
+`prisma_sase_external_alerts_current`) appear in both generations. This
+plugin targets 3.0 only; if a tenant rejects 3.0 everywhere (control probe
+fails with valid auth), it may be a 1.0/2.0-era tenant — that's an
+API-generation mismatch, not a mapping problem.
 
 ## What "read-only by design" means against this catalog
 

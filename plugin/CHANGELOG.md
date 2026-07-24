@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.7.0 — 2026-07-24
+
+PANW guidance (internal, 2026-07-24) folded in: the per-alert severity view
+is identified, the ADEM per-user parameter is corrected, and all v0.6.8
+probe/semantics assumptions are confirmed.
+
+- **NEW (severity path):** `alerts_detail` now defaults to
+  `prisma_sase_external_alerts_current` — a single-segment Insights 3.0
+  resource (no view component) returning per-alert rows with severity
+  (`alert_id`, `severity`, `severity_id`, `state`, `updated_time`).
+  `query_alerts` tries it automatically before falling back to the
+  aggregate view; marked unverified until confirmed live. The client and
+  discovery now support single-segment resource paths.
+- **FIX (ADEM per-user):** per-user scoping now sends
+  `filter=userName==<email>` (the correct parameter) instead of the guessed
+  `user=`. Valid `endpoint-type` values documented: `muAgent`, `rnAgent`.
+- **CHG (discovery):** candidate list updated from guidance —
+  `prisma_sase_external_alerts_current` leads alerts_detail;
+  `users/all/user_list_all`, `sites/rn_list`, `sites/sc_list`,
+  `sites/site_status` added; speculative dead-end candidates trimmed.
+  `DATA10002` (Invalid Resource property name) added to the
+  exists_field_mismatch class; classification order fixed so property-name
+  errors are not mistaken for missing views.
+- **CHG (confirmed semantics):** `alerts/alerts_list` = one row per
+  sub-tenant, `total_count` = alerts raised within the time window (docs and
+  messages updated); scope to one sub-tenant via `sub_tenant_id`/`domain`
+  filter. Error codes confirmed stable (BigQuery passthrough: GCP* from BQ,
+  DATA* from the gateway). `properties:["*"]` = BQ passthrough, fine for
+  probing; official SELECT format is `[{"property": "name"}]`. Token
+  `expires_in` guaranteed 900 s. Rate limits documented: 1000 calls/min per
+  source IP → 429; ~4000/min → 403 + 10-min IP block (403 hint updated).
+- **DOC:** endpoints.md, api-catalog.md (incl. `incidents/incidents_list`
+  dead end → SCM Unified Incident Framework), SKILL.md, plugin/README
+  troubleshooting, and both README walkthroughs (role confirmation: View
+  Only Administrator is the right-sized standard role) updated accordingly.
+
 ## 0.6.8 — 2026-07-24
 
 Driven by issue #3 (live-test field report, region sg): discovery probe

@@ -36,27 +36,30 @@ CANDIDATES = [
     ("control",         "applications",    "application_list"),
     # alerts (aggregate view -- counts by MU/RN/SC)
     ("alerts",          "alerts",          "alerts_list"),
-    # alerts detail -- the per-alert view (severity/message) is NOT yet
-    # identified on the live tenant; these are the candidates to probe.
+    # alerts detail -- PANW guidance (2026-07-24): the per-alert view with
+    # severity is the SINGLE-SEGMENT resource
+    # prisma_sase_external_alerts_current (no view; fields incl. alert_id,
+    # severity, severity_id, state, updated_time). Older guesses kept as
+    # fallbacks for other tenant shapes.
+    ("alerts_detail",   "prisma_sase_external_alerts_current", ""),
     ("alerts_detail",   "alerts",          "alert_list"),
     ("alerts_detail",   "alerts",          "alert_detail"),
-    ("alerts_detail",   "alerts",          "alerts_detail"),
-    ("alerts_detail",   "alerts",          "alert_event_list"),
-    ("alerts_detail",   "alerts",          "active_alert_list"),
-    ("alerts_detail",   "alerts",          "raised_alert_list"),
-    # connected users -- users/users_list live-verified
+    # connected users -- users/users_list live-verified;
+    # users/all/user_list_all is named in PANW guidance
     ("connected_users", "users",           "users_list"),
+    ("connected_users", "users/all",       "user_list_all"),
     ("connected_users", "users",           "user_list"),
     ("connected_users", "mobile_users",    "mobile_user_list"),
-    ("connected_users", "mobile_users",    "mobile_users_list"),
     ("connected_users", "agent_users",     "agent_user_list"),
     ("connected_users", "branch_users",    "branch_user_list"),
-    # remote networks / tunnels -- tunnels/tunnel_list live-verified
+    # remote networks / tunnels -- tunnels/tunnel_list live-verified;
+    # sites/rn_list, sites/sc_list, sites/site_status per PANW guidance
     ("remote_networks", "tunnels",         "tunnel_list"),
+    ("remote_networks", "sites",           "rn_list"),
+    ("remote_networks", "sites",           "sc_list"),
+    ("remote_networks", "sites",           "site_status"),
     ("remote_networks", "remote_networks", "remote_network_list"),
-    ("remote_networks", "remote_networks", "remote_networks_list"),
     ("remote_networks", "sites",           "site_list"),
-    ("remote_networks", "tunnels",         "tunnels_list"),
 ]
 
 _MAX_SAMPLE_FIELDS = 25
@@ -77,12 +80,21 @@ def _classify_failure(err):
     """
     code = (err.api_code or "").upper()
     msg = (err.api_message or "").lower()
-    if "DATA10003" in code or "invalid resource" in msg:
-        return "not_found"
-    if ("GCP10002" in code or "unrecognized name" in msg
+    # "invalid resource property name" (DATA10002) must be checked before the
+    # broader "invalid resource" (DATA10003) substring.
+    if ("GCP10002" in code or "DATA10002" in code
+            or "unrecognized name" in msg
+            or "invalid resource property" in msg
             or "select list must not be empty" in msg):
         return "exists_field_mismatch"
+    if "DATA10003" in code or "invalid resource" in msg:
+        return "not_found"
     return "http_%s" % (err.status or "error")
+
+
+def _label(entry):
+    """Display label -- handles single-segment resources (empty view)."""
+    return "/".join(p for p in (entry["resource"], entry["view"]) if p)
 
 
 def _failure_rank(status):
@@ -172,8 +184,7 @@ def discover_insights(kind=None, tsg_id=None, region=None):
             "property; override via PRISMA_FILTER_TIME_PROP, or "
             "_SEVERITY_PROP/_STATE_PROP). The probe error text names the "
             "offending field."
-            % ", ".join(sorted("%s/%s" % (e["resource"], e["view"])
-                               for e in field_mismatches)))
+            % ", ".join(sorted(_label(e) for e in field_mismatches)))
     if any(p["status"] != "ok" for p in probes):
         notes.append(
             "How probe 400s are classified (from the server's error code): "

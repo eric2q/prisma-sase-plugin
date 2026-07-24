@@ -82,8 +82,11 @@ def probe(resource, view):
                                                "risk_score"],
         ("alerts", "alerts_list"): ["sub_tenant_id", "total_count", "mu_count",
                                     "rn_count", "sc_count"],
-        ("alerts", "alert_list"): ["alert_id", "severity", "state", "message",
-                                   "raised_time", "location"],
+        # Per PANW guidance: the per-alert severity view is the single-segment
+        # resource prisma_sase_external_alerts_current (empty view).
+        ("prisma_sase_external_alerts_current", ""): [
+            "alert_id", "severity", "severity_id", "state", "message",
+            "updated_time", "location"],
         ("users", "users_list"): ["user_name", "location", "source_ip",
                                   "login_time"],
         ("tunnels", "tunnel_list"): ["node_type", "site_name", "tunnel_name",
@@ -106,7 +109,11 @@ def probe(resource, view):
 def adem(subpath, params):
     """Return a canned ADEM telemetry payload for the score endpoint."""
     if "score" in subpath:
+        # Live shape: per-user scoping arrives as filter=userName==<email>.
         user = params.get("user") or params.get("agent")
+        filt = params.get("filter") or ""
+        if not user and filt.startswith("userName=="):
+            user = filt[len("userName=="):]
         data = {
             "overall_score": 74 if user else 82,
             "components": {"lan": 91, "wifi": 78, "dns": 69, "app": 80},

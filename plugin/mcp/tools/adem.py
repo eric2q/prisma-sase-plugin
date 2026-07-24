@@ -3,8 +3,13 @@
 Endpoint shape confirmed from pan.dev:
     GET /adem/telemetry/v2/measure/agent/score
         ?start=<epoch>&end=<epoch>&endpoint-type=muAgent&response-type=summary
-The per-user query parameter name is tenant/version dependent -- confirm against
-a live tenant (design doc sec.11.1).
+
+Per PANW guidance (2026-07-24):
+* Per-user scoping uses the ``filter`` query parameter with
+  ``userName==<user_email>`` (urlencoded by the client automatically).
+* Valid ``endpoint-type`` values: ``muAgent`` (Mobile Users) and ``rnAgent``
+  (Remote Networks).
+The per-app parameter remains a best-guess pending confirmation.
 """
 import time
 
@@ -35,9 +40,11 @@ def get_user_experience(user=None, app=None, hours=24, start=None, end=None,
         "response-type": config.ADEM_DEFAULT_RESPONSE_TYPE,
     }
     if user:
-        params["user"] = user   # NOTE: param name pending tenant confirmation (sec.11.1)
+        # PANW guidance (2026-07-24): per-user scoping is filter=userName==<email>
+        # (urlencode turns == into %3D%3D automatically).
+        params["filter"] = "userName==" + str(user)
     if app:
-        params["app"] = app
+        params["app"] = app   # NOTE: per-app param still a best-guess
 
     client = SaseClient()
     try:
@@ -70,9 +77,11 @@ def get_user_experience(user=None, app=None, hours=24, start=None, end=None,
                 "response_shape": "list[%d]" % len(data),
                 "first_item_keys": list(first.keys())[:20] if first else []}
         if user:
-            out["note"] = ("No score returned for this user -- the per-user "
-                           "query parameter name is unconfirmed for this tenant "
-                           "(sec.11.1). See no_data_debug for the response shape.")
+            out["note"] = ("No score returned for this user. The query used "
+                           "filter=userName==<email> (PANW guidance) -- check "
+                           "the exact user email/spelling, whether this user "
+                           "has an ADEM-enabled agent, and see no_data_debug "
+                           "for the response shape.")
         else:
             out["note"] = ("No score in the ADEM response -- either no agent "
                            "data in this window, or the response shape differs "

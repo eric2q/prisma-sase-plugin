@@ -108,8 +108,7 @@ class SaseClient:
             data = mock_data.insights(kind, filter_rules)
         else:
             _require_ctx(tsg, region)
-            path = config.INSIGHTS_QUERY_PATH.format(
-                resource=mapping["resource"], view=mapping["view"])
+            path = config.insights_path(mapping["resource"], mapping.get("view"))
             # Round-2 field report BUG-1: some views (tunnels/tunnel_list)
             # REJECT an empty filter with HTTP 400 and require a time window.
             # When the caller supplies no rules, inject a default 24h time
@@ -177,7 +176,7 @@ class SaseClient:
         if config.MOCK_MODE:
             return mock_data.probe(resource, view)
         _require_ctx(tsg, region)
-        path = config.INSIGHTS_QUERY_PATH.format(resource=resource, view=view)
+        path = config.insights_path(resource, view)
         body = {"filter": {"rules": filter_rules or []}}
         if properties is not None:
             body["properties"] = properties
@@ -225,7 +224,11 @@ class SaseClient:
             raise SaseApiError(
                 "Access denied (403) on %s." % path,
                 hint="The service account likely lacks a read-only role on this "
-                     "TSG, or the wrong TSG/region is set.", status=403)
+                     "TSG, or the wrong TSG/region is set. If this appeared "
+                     "suddenly during heavy querying: the gateway blocks a "
+                     "source IP for 10 minutes above ~4000 calls/min -- wait "
+                     "and retry (the normal limit is 1000 calls/min -> 429).",
+                status=403)
         if resp.status_code == 404:
             raise SaseApiError(
                 "Not found (404) on %s." % path,
