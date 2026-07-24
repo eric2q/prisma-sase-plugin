@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.7 — 2026-07-24
+
+Discovery no longer over-recommends PRISMA_INSIGHTS_MAP.
+
+- **CHG:** `discover_insights` now compares each discovered mapping against
+  the shipped `config.INSIGHTS_MAP` defaults. Names that already match a
+  built-in **verified** mapping are reported under a new
+  `matches_shipped_defaults` field with a "no PRISMA_INSIGHTS_MAP needed"
+  note, instead of being included in `suggested_insights_map`. Only genuinely
+  new or shipped-as-unverified mappings (e.g. `alerts_detail`) are suggested
+  for persistence. Previously discovery told every user to set the env var
+  even when the result was identical to the defaults.
+- **CHG:** SKILL.md decision tree: relay `matches_shipped_defaults` as
+  "no env change needed"; only persist `suggested_insights_map` entries.
+
 ## 0.6.6 — 2026-07-24
 
 PANW API landscape survey consolidated into the Skill.
