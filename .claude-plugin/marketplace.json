@@ -1,0 +1,50 @@
+{
+  "name": "prisma-sase",
+  "owner": {
+    "name": "Eric (Solutions Consultant, Palo Alto Networks)"
+  },
+  "metadata": {
+    "description": "Read-only Prisma SASE (Prisma Access) AI-assistant tools: MCP server + ops Skill. One code tree, two catalog entries (pick the one for your OS).",
+    "version": "0.6.1"
+  },
+  "plugins": [
+    {
+      "name": "prisma-sase",
+      "source": "./plugin",
+      "description": "Prisma SASE read-only tools + ops Skill — macOS / Linux variant (launches via bash). Windows users: install prisma-sase-windows instead.",
+      "version": "0.6.1",
+      "author": {
+        "name": "Eric (Solutions Consultant, Palo Alto Networks)"
+      },
+      "keywords": ["prisma-sase", "prisma-access", "sase", "mcp", "adem",
+                   "insights", "read-only", "network-operations", "macos", "linux"],
+      "category": "network-operations",
+      "strict": false,
+      "mcpServers": {
+        "prisma-sase": {
+          "command": "bash",
+          "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/run.sh"]
+        }
+      }
+    },
+    {
+      "name": "prisma-sase-windows",
+      "source": "./plugin",
+      "description": "Prisma SASE read-only tools + ops Skill — Windows variant (launches via cmd / run.cmd). macOS/Linux users: install prisma-sase instead.",
+      "version": "0.6.1",
+      "author": {
+        "name": "Eric (Solutions Consultant, Palo Alto Networks)"
+      },
+      "keywords": ["prisma-sase", "prisma-access", "sase", "mcp", "adem",
+                   "insights", "read-only", "network-operations", "windows"],
+      "category": "network-operations",
+      "strict": false,
+      "mcpServers": {
+        "prisma-sase": {
+          "command": "cmd",
+          "args": ["/c", "${CLAUDE_PLUGIN_ROOT}\\mcp\\run.cmd"]
+        }
+      }
+    }
+  ]
+}

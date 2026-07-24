@@ -1,0 +1,5 @@
+# Prisma SASE MCP server -- Phase 1 dependencies
+# Python >= 3.10 required (fastmcp floor).
+# fastmcp 2.x and 3.x both work with this server (3.4.4 verified in the field).
+fastmcp>=2,<4
+httpx>=0.27
