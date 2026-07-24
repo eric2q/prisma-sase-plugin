@@ -16,16 +16,28 @@
       "author": {
         "name": "Eric (Solutions Consultant, Palo Alto Networks)"
       },
-      "keywords": ["prisma-sase", "prisma-access", "sase", "mcp", "adem",
-                   "insights", "read-only", "network-operations", "macos"],
+      "keywords": [
+        "prisma-sase",
+        "prisma-access",
+        "sase",
+        "mcp",
+        "adem",
+        "insights",
+        "read-only",
+        "network-operations",
+        "macos"
+      ],
       "category": "network-operations",
       "strict": false,
       "mcpServers": {
         "prisma-sase": {
           "command": "bash",
-          "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/run.sh"]
+          "args": [
+            "${CLAUDE_PLUGIN_ROOT}/mcp/run.sh"
+          ]
         }
-      }
+      },
+      "license": "MIT"
     },
     {
       "name": "prisma-sase-linux",
@@ -35,16 +47,28 @@
       "author": {
         "name": "Eric (Solutions Consultant, Palo Alto Networks)"
       },
-      "keywords": ["prisma-sase", "prisma-access", "sase", "mcp", "adem",
-                   "insights", "read-only", "network-operations", "linux"],
+      "keywords": [
+        "prisma-sase",
+        "prisma-access",
+        "sase",
+        "mcp",
+        "adem",
+        "insights",
+        "read-only",
+        "network-operations",
+        "linux"
+      ],
       "category": "network-operations",
       "strict": false,
       "mcpServers": {
         "prisma-sase": {
           "command": "bash",
-          "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/run.sh"]
+          "args": [
+            "${CLAUDE_PLUGIN_ROOT}/mcp/run.sh"
+          ]
         }
-      }
+      },
+      "license": "MIT"
     },
     {
       "name": "prisma-sase-windows",
@@ -54,16 +78,29 @@
       "author": {
         "name": "Eric (Solutions Consultant, Palo Alto Networks)"
       },
-      "keywords": ["prisma-sase", "prisma-access", "sase", "mcp", "adem",
-                   "insights", "read-only", "network-operations", "windows"],
+      "keywords": [
+        "prisma-sase",
+        "prisma-access",
+        "sase",
+        "mcp",
+        "adem",
+        "insights",
+        "read-only",
+        "network-operations",
+        "windows"
+      ],
       "category": "network-operations",
       "strict": false,
       "mcpServers": {
         "prisma-sase": {
           "command": "cmd",
-          "args": ["/c", "${CLAUDE_PLUGIN_ROOT}\\mcp\\run.cmd"]
+          "args": [
+            "/c",
+            "${CLAUDE_PLUGIN_ROOT}\\mcp\\run.cmd"
+          ]
         }
-      }
+      },
+      "license": "MIT"
     }
   ]
 }

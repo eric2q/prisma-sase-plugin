@@ -209,3 +209,28 @@ prisma-sase-plugin/
 - **Phase 2** — SD-WAN tools, config-snapshot audit, richer multi-tenant.
 - **Phase 3** — weekly-report automation, streamable-HTTP deployment, optional
   Prisma AIRS MCP security demo.
+
+## 關於本專案與免責聲明 / About & Disclaimer
+
+**中文** — 本專案作者任職於 Palo Alto Networks,職務為 Solutions Consultant。
+這是作者為了向客戶推廣 Prisma SASE、以個人時間開發的 **side project**:
+**並非 Palo Alto Networks 官方開發、維護或背書,不代表公司立場;
+內容與查詢結果亦不保證正確性、完整性或適用性** —— 使用前請自行評估,
+重要決策請以官方文件與官方支援管道為準。本專案以開源方式發佈
+(MIT License,見 the repository's LICENSE file),歡迎透過 GitHub Issues / PR
+提出任何意見與回饋,也歡迎**無償**引用、修改與再利用。
+
+**English** — The author works at Palo Alto Networks as a Solutions
+Consultant. This is a personal **side project** built on personal time to
+help introduce Prisma SASE to customers. **It is not developed, maintained,
+or endorsed by Palo Alto Networks and does not represent the company; no
+guarantee is made as to the correctness, completeness, or fitness of its
+content or query results** — evaluate before use, and rely on official
+documentation and support channels for important decisions. The project is
+open source under the MIT License; feedback and contributions
+are welcome via GitHub Issues / PRs, and everyone is free to use, modify,
+and reference it at no cost.
+
+*Palo Alto Networks、Prisma 及相關標誌為 Palo Alto Networks, Inc. 之商標。
+Palo Alto Networks, Prisma, and related marks are trademarks of
+Palo Alto Networks, Inc.*
