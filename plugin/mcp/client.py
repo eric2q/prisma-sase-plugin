@@ -30,10 +30,17 @@ log = logging.getLogger("prisma_sase.client")
 class SaseApiError(RuntimeError):
     """An API failure with an operator-actionable message and optional hint."""
 
-    def __init__(self, message, hint=None, status=None):
+    def __init__(self, message, hint=None, status=None, api_code=None,
+                 api_message=None):
         super().__init__(message)
         self.hint = hint
         self.status = status
+        # Server-side error identity (issue #3): e.g. DATA10003 = invalid
+        # resource/view name, GCP10002 = valid view but unrecognized field.
+        # Discovery uses these to separate "does not exist" from "exists but
+        # the payload/field name is wrong".
+        self.api_code = api_code
+        self.api_message = api_message
 
     def as_dict(self, tool=None):
         d = {"ok": False, "error": str(self)}
@@ -41,6 +48,10 @@ class SaseApiError(RuntimeError):
             d["hint"] = self.hint
         if self.status is not None:
             d["status"] = self.status
+        if self.api_code:
+            d["api_error_code"] = self.api_code
+        if self.api_message:
+            d["api_error_message"] = self.api_message
         if tool:
             d["tool"] = tool
         return d
@@ -97,8 +108,7 @@ class SaseClient:
             data = mock_data.insights(kind, filter_rules)
         else:
             _require_ctx(tsg, region)
-            path = config.INSIGHTS_QUERY_PATH.format(
-                resource=mapping["resource"], view=mapping["view"])
+            path = config.insights_path(mapping["resource"], mapping.get("view"))
             # Round-2 field report BUG-1: some views (tunnels/tunnel_list)
             # REJECT an empty filter with HTTP 400 and require a time window.
             # When the caller supplies no rules, inject a default 24h time
@@ -150,19 +160,26 @@ class SaseClient:
 
     # -- Insights probe: query an explicit resource/view (read-only) -------
     def insights_probe(self, resource, view, filter_rules=None,
-                       tsg_id=None, region=None):
+                       properties=None, tsg_id=None, region=None):
         """POST a query at an explicit resource/view (used by discovery).
 
         Same read-only query endpoint as insights_query -- no mapping lookup,
         no error enrichment; the caller interprets failures.
+        properties: optional explicit SELECT list. Issue #3: probing with
+        ``["*"]`` (always a valid SELECT) lets the caller separate "view does
+        not exist" (DATA10003/Invalid resource) from "view exists but a field
+        name is wrong" (GCP10002/Unrecognized name). Omit to send the same
+        filter-only shape the live-verified query tools use.
         """
         tsg = config.resolve_tsg(tsg_id)
         region = config.resolve_region(region)
         if config.MOCK_MODE:
             return mock_data.probe(resource, view)
         _require_ctx(tsg, region)
-        path = config.INSIGHTS_QUERY_PATH.format(resource=resource, view=view)
+        path = config.insights_path(resource, view)
         body = {"filter": {"rules": filter_rules or []}}
+        if properties is not None:
+            body["properties"] = properties
         return self._request("POST", path, tsg, region, json_body=body)
 
     # -- ADEM (read-only GET) ---------------------------------------------
@@ -207,7 +224,11 @@ class SaseClient:
             raise SaseApiError(
                 "Access denied (403) on %s." % path,
                 hint="The service account likely lacks a read-only role on this "
-                     "TSG, or the wrong TSG/region is set.", status=403)
+                     "TSG, or the wrong TSG/region is set. If this appeared "
+                     "suddenly during heavy querying: the gateway blocks a "
+                     "source IP for 10 minutes above ~4000 calls/min -- wait "
+                     "and retry (the normal limit is 1000 calls/min -> 429).",
+                status=403)
         if resp.status_code == 404:
             raise SaseApiError(
                 "Not found (404) on %s." % path,
@@ -217,19 +238,51 @@ class SaseClient:
         if resp.status_code >= 400:
             # Round-2 field report BUG-1: do NOT lead with region -- a 400 here
             # is most often a filter-payload or resource/view mismatch.
+            code, msg = _extract_api_error(resp)
+            detail = ""
+            if code or msg:
+                detail = " [%s%s]" % (code or "", (": " + msg) if msg else "")
             raise SaseApiError(
-                "API returned HTTP %d on %s." % (resp.status_code, path),
+                "API returned HTTP %d on %s.%s" % (resp.status_code, path, detail),
                 hint="Most common causes: the filter payload shape is not "
                      "accepted by this view, or the resource/view name does not "
                      "match this tenant -- run discover_insights to probe both. "
                      "Only if other views also fail, re-check X-PANW-Region "
-                     "(currently '%s')." % region, status=resp.status_code)
+                     "(currently '%s')." % region, status=resp.status_code,
+                api_code=code, api_message=msg)
 
         try:
             return resp.json()
         except ValueError:
             raise SaseApiError("Non-JSON response from %s." % path,
                                status=resp.status_code)
+
+
+def _extract_api_error(resp):
+    """Best-effort (code, message) from an error body; (None, None) otherwise.
+
+    Insights error bodies carry an identity worth surfacing (issue #3), e.g.
+    DATA10003 "Invalid resource" (name does not exist) vs GCP10002
+    "Unrecognized name: X" (view exists, field name wrong). Shapes vary, so
+    look in the common envelopes. Message is truncated -- it is diagnostic
+    text, never echoed secrets (the token endpoint path never reaches here).
+    """
+    try:
+        body = resp.json()
+    except ValueError:
+        return None, None
+    if not isinstance(body, dict):
+        return None, None
+    cand = body
+    if isinstance(body.get("error"), dict):
+        cand = body["error"]
+    elif (isinstance(body.get("errors"), list) and body["errors"]
+          and isinstance(body["errors"][0], dict)):
+        cand = body["errors"][0]
+    code = cand.get("errorCode") or cand.get("code")
+    msg = cand.get("message") or cand.get("msg") or cand.get("detail")
+    return (str(code) if code not in (None, "") else None,
+            str(msg)[:200] if msg not in (None, "") else None)
 
 
 def _retry_after(resp, attempt):

@@ -134,8 +134,11 @@ TSG ID**。→ **Next**。
 要做** —— 沒有指派角色的 service account 沒有任何權限,plugin 會收到 403。
 Apps & Services 選 **All Apps & Services**,Role 選 **View Only
 Administrator** → **Submit** 完成。View Only Administrator 已足夠本 plugin
-全部功能;請勿授予 Superuser 等可寫角色(最小權限原則)。多租戶(MSP)
-環境請留意 identity 建在正確的 TSG 範圍下,scope 只綁必要租戶。
+全部功能;請勿授予 Superuser 等可寫角色(最小權限原則)。系統中雖有更細的
+角色(如 ADEM Tier 1 Support、Multitenant Monitor User),但無法同時涵蓋
+Insights 與 ADEM 兩組 API —— View Only Administrator 是已確認的最合適
+標準配置。多租戶(MSP)環境請留意 identity 建在正確的 TSG 範圍下,
+scope 只綁必要租戶。
 
 <img src="plugin/docs/images/scm-4-assign-roles.png" alt="Assign Roles:All Apps & Services + View Only Administrator → Submit" width="640">
 

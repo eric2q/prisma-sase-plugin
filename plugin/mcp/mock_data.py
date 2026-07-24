@@ -82,8 +82,11 @@ def probe(resource, view):
                                                "risk_score"],
         ("alerts", "alerts_list"): ["sub_tenant_id", "total_count", "mu_count",
                                     "rn_count", "sc_count"],
-        ("alerts", "alert_list"): ["alert_id", "severity", "state", "message",
-                                   "raised_time", "location"],
+        # Per PANW guidance: the per-alert severity view is the single-segment
+        # resource prisma_sase_external_alerts_current (empty view).
+        ("prisma_sase_external_alerts_current", ""): [
+            "alert_id", "severity", "severity_id", "state", "message",
+            "updated_time", "location"],
         ("users", "users_list"): ["user_name", "location", "source_ip",
                                   "login_time"],
         ("tunnels", "tunnel_list"): ["node_type", "site_name", "tunnel_name",
@@ -94,15 +97,23 @@ def probe(resource, view):
     fields = ok_views.get((resource, view))
     if fields is None:
         from client import SaseApiError
+        # Mirror the live error identity (issue #3) so discovery's failure
+        # classification is exercised in mock mode too.
         raise SaseApiError("Not found (mock 400) on %s/%s." % (resource, view),
-                           status=400)
+                           status=400, api_code="DATA10003",
+                           api_message="Invalid resource '/%s/%s.json'"
+                                       % (resource, view))
     return {"data": [dict((f, "sample") for f in fields)]}
 
 
 def adem(subpath, params):
     """Return a canned ADEM telemetry payload for the score endpoint."""
     if "score" in subpath:
+        # Live shape: per-user scoping arrives as filter=userName==<email>.
         user = params.get("user") or params.get("agent")
+        filt = params.get("filter") or ""
+        if not user and filt.startswith("userName=="):
+            user = filt[len("userName=="):]
         data = {
             "overall_score": 74 if user else 82,
             "components": {"lan": 91, "wifi": 78, "dns": 69, "app": 80},

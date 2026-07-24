@@ -142,9 +142,11 @@ in the Client ID are the TSG ID.** → **Next**.
 account with no role has **no permissions** — the plugin would get HTTP 403.
 Apps & Services = **All Apps & Services**, Role = **View Only Administrator** →
 **Submit**. View Only Administrator covers every feature of this plugin; do
-**not** grant Superuser or any writable role (least privilege). In multi-tenant
-(MSP) environments, create the identity under the correct TSG scope and bind
-only the tenants you need.
+**not** grant Superuser or any writable role (least privilege). Narrower roles
+exist (e.g. ADEM Tier 1 Support, Multitenant Monitor User) but do not cover
+both the Insights and ADEM APIs — View Only Administrator is the confirmed
+right-sized choice. In multi-tenant (MSP) environments, create the identity
+under the correct TSG scope and bind only the tenants you need.
 
 <img src="plugin/docs/images/scm-4-assign-roles.png" alt="Assign Roles: All Apps & Services + View Only Administrator → Submit" width="640">
 

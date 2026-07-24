@@ -79,11 +79,17 @@ per-section `error`/`hint` says). The `checks` object gives the counts.
 
 - **Alerts** are always reported **with their severity and timestamp**, highest
   severity first. Lead with the counts by severity, then the notable items.
-  **Exception**: when the response has `severity_unavailable: true`, this
-  tenant's alerts view is an aggregate (counts by MU/RN/SC only) — report the
-  `summary_counts` and say severity breakdown is not available yet; never
-  invent severities, and mention `discover_insights(kind="alerts_detail")` as
-  the path to fix it.
+  **Exception**: when the response has `severity_unavailable: true`, the
+  per-alert severity view (`prisma_sase_external_alerts_current`, tried
+  automatically first) returned nothing usable and the tool fell back to the
+  aggregate view (counts by MU/RN/SC only) — report the `summary_counts`,
+  never invent severities. Suggest `discover_insights(kind="alerts_detail")`
+  to probe the severity view directly: if it works, ask the user to report it
+  (mapping gets marked verified); if it doesn't exist, present severity as an
+  API limitation, NOT a setting the user forgot. If the response carries
+  `sub_tenant_count` / `aggregation_note`, always say the total is summed
+  across N sub-tenants (alerts **raised within the window**, not currently
+  active) — the SASE UI shows per-sub-tenant numbers and will look lower.
 - **ADEM scores** are always reported **with their rating band** (see
   `references/thresholds.md`), not as a bare number. A score below 70 is
   "degraded" and should be called out, with the weakest component named.

@@ -1,14 +1,18 @@
 """query_alerts -- Prisma Access alerts via Insights 3.0 (read-only).
 
 Round-2 live finding (the live tenant (sg)): `alerts/alerts_list` is an AGGREGATE
-view -- fields are sub_tenant_id / total_count / mu_count / rn_count / sc_count.
-Counts only; structurally NO per-alert severity/message/time. The per-alert
-"detail" view for this tenant is not yet identified.
+view -- fields are sub_tenant_id / total_count / mu_count / rn_count / sc_count
+(one row PER SUB-TENANT; total_count = alerts RAISED within the time window,
+not currently-active -- PANW guidance 2026-07-24). Counts only; no per-alert
+severity. The per-alert view, per the same guidance, is the single-segment
+resource `prisma_sase_external_alerts_current` (fields incl. alert_id,
+severity, severity_id, state, updated_time) -- now the shipped alerts_detail
+default, pending live verification.
 
 Strategy:
-1. Try the `alerts_detail` mapping first (candidates probed by
-   discover_insights(kind="alerts_detail")). If it works and returns per-alert
-   rows, use the full severity path.
+1. Try the `alerts_detail` mapping first (prisma_sase_external_alerts_current;
+   candidates probed by discover_insights(kind="alerts_detail")). If it works
+   and returns per-alert rows, use the full severity path.
 2. Otherwise fall back to `alerts`:
    - aggregate shape  -> honest summary_counts + severity_unavailable flag
    - per-alert shape  -> full severity path (tenants where alerts_list IS a
@@ -17,8 +21,8 @@ Strategy:
 import config
 from client import SaseClient, SaseApiError, records_of, slim_records, verify_note
 
-_WHITELIST = ["alert_id", "severity", "state", "category", "message",
-              "raised_time", "location"]
+_WHITELIST = ["alert_id", "severity", "severity_id", "state", "category",
+              "message", "raised_time", "updated_time", "location"]
 _SEV_ORDER = ["critical", "high", "medium", "low", "informational"]
 
 # Candidate field names, most-likely first (tenant/version dependent).
@@ -120,12 +124,15 @@ def query_alerts(severity=None, state=None, hours=24, limit=config.DEFAULT_LIMIT
         return out
 
     # --- aggregate summary (honest counts, no severity) ----------------------
-    agg = records[0]
+    # Issue #3 (low): the view returns ONE ROW PER SUB-TENANT. Sum across all
+    # rows and say so -- a single-row read both under-counted multi-sub-tenant
+    # tenants and made the number mismatch the per-tenant figure in the UI.
+    agg_rows = [r for r in records if isinstance(r, dict)]
     summary = {
-        "total": _int_of(agg, "total_count"),
-        "mobile_users": _int_of(agg, "mu_count"),
-        "remote_networks": _int_of(agg, "rn_count"),
-        "service_connections": _int_of(agg, "sc_count"),
+        "total": sum(_int_of(r, "total_count") for r in agg_rows),
+        "mobile_users": sum(_int_of(r, "mu_count") for r in agg_rows),
+        "remote_networks": sum(_int_of(r, "rn_count") for r in agg_rows),
+        "service_connections": sum(_int_of(r, "sc_count") for r in agg_rows),
     }
     out = {
         "ok": True,
@@ -136,13 +143,28 @@ def query_alerts(severity=None, state=None, hours=24, limit=config.DEFAULT_LIMIT
         "summary_counts": summary,
         "counts_by_severity": {},
         "alerts": [],
-        "note": ("This tenant's alerts/alerts_list is an AGGREGATE view "
-                 "(counts by MU/RN/SC only) -- per-alert severity/message is "
-                 "structurally unavailable here. Run "
-                 "discover_insights(kind=\"alerts_detail\") to find the "
-                 "per-alert view, then set PRISMA_INSIGHTS_MAP with an "
-                 "\"alerts_detail\" entry."),
+        "note": ("Fell back to alerts/alerts_list, an AGGREGATE view (counts "
+                 "by MU/RN/SC only, no per-alert severity). The per-alert "
+                 "view -- prisma_sase_external_alerts_current, per PANW "
+                 "guidance -- was tried first but did not return usable rows "
+                 "on this tenant (see detail_view_error if present). Run "
+                 "discover_insights(kind=\"alerts_detail\") to probe it "
+                 "directly; if it works there, report the outcome so the "
+                 "mapping can be marked verified. If it does not exist on "
+                 "this tenant, severity is an API limitation, not a missing "
+                 "setting."),
     }
+    if len(agg_rows) > 1:
+        out["sub_tenant_count"] = len(agg_rows)
+        out["by_sub_tenant"] = [
+            {"sub_tenant_id": r.get("sub_tenant_id"),
+             "total": _int_of(r, "total_count")}
+            for r in agg_rows[:config.MAX_LIMIT]]
+        out["aggregation_note"] = (
+            "Counts are summed across %d sub-tenants; the SASE UI shows "
+            "per-sub-tenant numbers, so a single sub-tenant's figure will be "
+            "lower. Per-sub-tenant totals: see by_sub_tenant."
+            % len(agg_rows))
     if severity or state:
         out["filter_note"] = ("severity/state filters cannot be applied on the "
                               "aggregate view; showing totals instead.")

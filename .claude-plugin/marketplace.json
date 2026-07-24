@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Read-only Prisma SASE (Prisma Access) AI-assistant tools: MCP server + ops Skill. One code tree, three OS-specific catalog entries — install the one matching your OS.",
-    "version": "0.6.7"
+    "version": "0.7.0"
   },
   "plugins": [
     {
       "name": "prisma-sase-mac",
       "source": "./plugin",
       "description": "Prisma SASE read-only tools + ops Skill — macOS variant (launches via bash). Windows: prisma-sase-windows; Linux: prisma-sase-linux.",
-      "version": "0.6.7",
+      "version": "0.7.0",
       "author": {
         "name": "Eric (Solutions Consultant, Palo Alto Networks)"
       },
@@ -43,7 +43,7 @@
       "name": "prisma-sase-linux",
       "source": "./plugin",
       "description": "Prisma SASE read-only tools + ops Skill — Linux variant (launches via bash). macOS: prisma-sase-mac; Windows: prisma-sase-windows.",
-      "version": "0.6.7",
+      "version": "0.7.0",
       "author": {
         "name": "Eric (Solutions Consultant, Palo Alto Networks)"
       },
@@ -74,7 +74,7 @@
       "name": "prisma-sase-windows",
       "source": "./plugin",
       "description": "Prisma SASE read-only tools + ops Skill — Windows variant (launches via cmd / run.cmd). macOS: prisma-sase-mac; Linux: prisma-sase-linux.",
-      "version": "0.6.7",
+      "version": "0.7.0",
       "author": {
         "name": "Eric (Solutions Consultant, Palo Alto Networks)"
       },
