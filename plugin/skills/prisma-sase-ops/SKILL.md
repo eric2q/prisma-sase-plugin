@@ -108,6 +108,12 @@ per-section `error`/`hint` says). The `checks` object gives the counts.
   `plugin_version`; the CLI equivalents (`--selfcheck`, the startup log) show
   it too. Compare against the repo's `plugin/CHANGELOG.md` to tell the user
   what their version does or lacks.
+- **`plugin_update_pending` in a response** → the host kept an old server
+  process alive across a marketplace update, so **this answer came from the
+  OLD code** and the update's fixes are not active. Say so up front and give
+  the restart instruction from the `action` field (Desktop ⌘Q / CLI
+  `/reload-plugins`) — don't let the user assume the update took effect, and
+  don't debug behaviour that the newer version may already have fixed.
 
 ## Reading the `_verify` / `note` fields
 

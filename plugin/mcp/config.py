@@ -37,7 +37,7 @@ import sys
 # in-conversation. MUST be bumped in lockstep with .claude-plugin/
 # marketplace.json (all three entries); tools/build-standalone.py fails the
 # build on a mismatch, and PUBLISHING.md documents the step.
-PLUGIN_VERSION = "0.8.2"
+PLUGIN_VERSION = "0.8.3"
 
 # --- Fixed, verified facts (design doc sec.3 -- do NOT change) ---------------
 AUTH_URL = "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
@@ -305,6 +305,59 @@ def placeholder_hint():
         "from your environment), or put the values in ~/.prisma-sase.env "
         "(KEY=VALUE lines, chmod 600)." % ", ".join(PLACEHOLDER_VARS)
     )
+
+
+def _parse_version(text):
+    """'0.8.10' -> (0, 8, 10); None when it isn't a version-looking string."""
+    parts = []
+    for chunk in str(text).split("."):
+        digits = ""
+        for ch in chunk:
+            if ch.isdigit():
+                digits += ch
+            else:
+                break
+        if not digits:
+            return None
+        parts.append(int(digits))
+    return tuple(parts) if parts else None
+
+
+def stale_version_check():
+    """Detect a running server that is older than what is installed on disk.
+
+    Hosts keep an MCP server process alive across a marketplace update: the
+    process launched from .../<plugin>/<old-version>/mcp/server.py keeps
+    serving until the app restarts, so `plugin_version` reports the OLD
+    version and none of the update's fixes are actually live. A live CLI
+    session had to run `ps` to discover this.
+
+    Version-cached layouts put us at .../<plugin>/<version>/mcp/config.py, so
+    when our grandparent directory is named exactly after the version we are
+    running, its siblings reveal newer installs. Returns None when the layout
+    is anything else (dev checkout, standalone install) -- no false alarms.
+    """
+    try:
+        version_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if os.path.basename(version_dir) != PLUGIN_VERSION:
+            return None
+        running = _parse_version(PLUGIN_VERSION)
+        if not running:
+            return None
+        parent = os.path.dirname(version_dir)
+        newest, newest_name = running, PLUGIN_VERSION
+        for name in os.listdir(parent):
+            if not os.path.isdir(os.path.join(parent, name)):
+                continue
+            candidate = _parse_version(name)
+            if candidate and candidate > newest:
+                newest, newest_name = candidate, name
+        if newest_name == PLUGIN_VERSION:
+            return None
+        return {"running": PLUGIN_VERSION, "installed": newest_name,
+                "install_root": parent}
+    except Exception:
+        return None
 
 
 def plugin_config_snapshot():

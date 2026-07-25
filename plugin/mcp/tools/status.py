@@ -71,8 +71,25 @@ def get_sase_status(tsg_id=None, region=None):
         sections["experience"] = {"error": ex.get("error"), "hint": ex.get("hint")}
 
     headline, checks = _headline(sections)
-    return {"ok": True, "plugin_version": config.PLUGIN_VERSION,
-            "headline": headline, "checks": checks, "sections": sections}
+    out = {"ok": True, "plugin_version": config.PLUGIN_VERSION,
+           "headline": headline, "checks": checks, "sections": sections}
+    stale = config.stale_version_check()
+    if stale:
+        # The host kept an old server process alive across an update, so this
+        # answer came from OLD code -- say so rather than letting the user
+        # believe the update took effect (a live session needed `ps` to spot
+        # it).
+        out["plugin_update_pending"] = {
+            "running_version": stale["running"],
+            "installed_version": stale["installed"],
+            "action": ("A newer version (%s) is installed but this server "
+                       "process is still running %s -- fixes in the update "
+                       "are NOT active. Restart to load it: Claude Desktop "
+                       "Cmd-Q and reopen; Claude Code CLI /reload-plugins or "
+                       "restart claude."
+                       % (stale["installed"], stale["running"])),
+        }
+    return out
 
 
 def _tunnels(tsg_id, region):

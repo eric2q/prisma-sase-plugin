@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.3 — 2026-07-25
+
+- **NEW:** the server detects when **it is itself out of date**. Hosts keep an
+  MCP server process alive across a marketplace update, so the process
+  launched from the previous version's directory keeps serving — reporting
+  the old `plugin_version` while none of the update's fixes are live. A live
+  CLI session needed `ps` forensics to spot this. Now `get_sase_status`
+  returns `plugin_update_pending` (running vs installed version + the restart
+  instruction), `--selfcheck` prints an `UPDATE PENDING` line, and startup
+  logs a warning. Detection is layout-scoped (only when the code sits in a
+  directory named after its own version), so dev checkouts never false-alarm.
+  SKILL tells Claude to lead with this rather than debugging behaviour the
+  newer version may already fix.
+- **CHG:** ADEM overall-score extraction also accepts `endpointScore` /
+  `experienceScore` (and snake_case variants) as aggregate-score keys.
+
 ## 0.8.2 — 2026-07-25
 
 Driven by a live Claude Code CLI walkthrough of a fresh install. The plugin's
