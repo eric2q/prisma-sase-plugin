@@ -33,8 +33,23 @@ LOG="$HOME/.prisma-sase-launch.log"
 echo "== prisma-sase uninstall =="
 echo ""
 
-targets=""
-_add() { [ -e "$1" ] || [ -L "$1" ] || return 0; targets="$targets $1"; echo "  - $1${2:+   ($2)}"; }
+# Targets are collected in an ARRAY, never a space-joined string. With a
+# string, `for t in $targets` word-splits on spaces, so a home directory like
+# /Users/Eric Chen shattered every path -- and because `rm -rf` succeeds on a
+# path that does not exist, the script printed "removed ..." for each fragment
+# while the real credential file stayed on disk. A deletion tool reporting
+# success while leaving a plaintext secret behind is the worst failure mode
+# this script has, hence the array + the post-delete verification below.
+# (Arrays are bash 3.2 / macOS-default safe; the ${a[@]+"${a[@]}"} idiom keeps
+# an empty array from tripping `set -u`.)
+targets=()
+labels=()
+_add() {
+  [ -e "$1" ] || [ -L "$1" ] || return 0
+  targets+=("$1")
+  labels+=("${2:-}")
+  echo "  - $1${2:+   ($2)}"
+}
 
 echo "Will remove:"
 _add "$VENV" "virtualenv, typically ~100 MB"
@@ -43,22 +58,22 @@ _add "$LOG" "launch breadcrumb"
 # Credential files: the canonical one AND look-alikes people create by hand
 # (a live session found a stray ~/.prisma-sase2.env holding a plaintext
 # secret at mode 644). List them all so none is silently left behind.
-cred_files=""
+cred_files=()
 for f in "$HOME"/.prisma-sase*.env; do
   [ -e "$f" ] || continue
-  cred_files="$cred_files $f"
+  cred_files+=("$f")
 done
-if [ -n "$cred_files" ] && [ "$KEEP_CREDS" -eq 0 ]; then
-  for f in $cred_files; do
+if [ ${#cred_files[@]} -gt 0 ] && [ "$KEEP_CREDS" -eq 0 ]; then
+  for f in "${cred_files[@]}"; do
     _add "$f" "CONTAINS CREDENTIALS"
   done
-elif [ -n "$cred_files" ]; then
+elif [ ${#cred_files[@]} -gt 0 ]; then
   echo ""
   echo "Keeping (--keep-credentials):"
-  for f in $cred_files; do echo "  - $f"; done
+  for f in "${cred_files[@]}"; do echo "  - $f"; done
 fi
 
-if [ -z "$targets" ]; then
+if [ ${#targets[@]} -eq 0 ]; then
   echo "  (nothing -- none of these exist)"
 fi
 
@@ -75,7 +90,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   echo "(--dry-run: nothing was deleted)"
   exit 0
 fi
-if [ -z "$targets" ]; then
+if [ ${#targets[@]} -eq 0 ]; then
   exit 0
 fi
 
@@ -90,13 +105,31 @@ if [ "$ASSUME_YES" -eq 0 ]; then
 fi
 
 echo ""
-for t in $targets; do
-  rm -rf "$t" && echo "removed $t"
+# Verify each removal instead of trusting rm's exit status: `rm -rf` returns 0
+# for a path that was never there, so "rm succeeded" does NOT mean "the file is
+# gone" if the path was ever mangled. Check the filesystem and fail loudly.
+failed=()
+for t in "${targets[@]}"; do
+  rm -rf "$t" || true
+  if [ -e "$t" ] || [ -L "$t" ]; then
+    failed+=("$t")
+    echo "FAILED to remove $t" >&2
+  else
+    echo "removed $t"
+  fi
 done
+
+if [ ${#failed[@]} -gt 0 ]; then
+  echo "" >&2
+  echo "ERROR: ${#failed[@]} item(s) could not be removed (listed above)." >&2
+  echo "  Check permissions and delete them by hand. If a credential file is" >&2
+  echo "  among them, treat the secret as still on disk." >&2
+  exit 1
+fi
 
 echo ""
 echo "== done =="
-if [ "$KEEP_CREDS" -eq 0 ] && [ -n "$cred_files" ]; then
+if [ "$KEEP_CREDS" -eq 0 ] && [ ${#cred_files[@]} -gt 0 ]; then
   echo "A credential file was deleted. If that secret was ever stored in"
   echo "plaintext or with loose permissions, ROTATE it in Strata Cloud Manager"
   echo "(IAM > the service account > regenerate the client secret) -- deleting"

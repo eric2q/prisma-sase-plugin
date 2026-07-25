@@ -88,9 +88,12 @@ if ! "$VENV/bin/python" -m pip install --quiet -r "$DIR/mcp/requirements.txt"; t
   exit 1
 fi
 
-# 4) credential file template (the PRIMARY credential path -- on macOS, GUI
-#    apps often do not inherit launchctl setenv variables, so a chmod-600 env
-#    file is the reliable mechanism; empty lines are ignored by the server)
+# 4) credential file template (the fallback path -- marketplace installs use
+#    the plugin's enable dialog, whose secret lands in OS secure storage. This
+#    file covers cloud sessions, CI and hosts without the dialog, and is also
+#    where the non-credential PRISMA_* tuning variables live. On macOS it is
+#    the reliable mechanism when GUI apps do not inherit launchctl setenv;
+#    empty lines are ignored by the server)
 ENVF="$HOME/.prisma-sase.env"
 if [ ! -f "$ENVF" ]; then
   cat > "$ENVF" <<'EOF'

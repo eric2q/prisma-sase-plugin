@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.8.5 — 2026-07-26
+
+From a full code review of the plugin. Two of these let the tooling report
+something reassuring that was not true.
+
+- **FIX (honesty, high):** tunnel state was matched by **substring**, so any
+  state name *containing* "up" counted as UP — `Disrupted`, `Setup`,
+  `backup`, `SUPERVISING`. A disrupted tunnel therefore produced the
+  headline **"Healthy: all tunnels up"**, defeating the 0.8.4 honesty work
+  (which had fixed the `init` case but not the matching underneath it).
+  Matching is now exact against an explicit up/down vocabulary (numeric
+  `1`/`0` included); anything unrecognized falls through to `other_states`
+  and is reported as *not up*, never assumed healthy.
+- **FIX (security, high):** `uninstall.sh` **left credential files on disk
+  while printing "removed"** when the home directory contained a space (e.g.
+  `/Users/Eric Chen`). Paths were joined into a string and word-split by the
+  delete loop; `rm -rf` returns success for a path that does not exist, so
+  every fragment reported success. Paths are now held in an array, and each
+  removal is **verified against the filesystem** — a surviving target prints
+  `FAILED to remove` and exits non-zero, so "done" now means deleted.
+- **FIX:** a `PRISMA_ENV_FILE` pointing at a **non-existent path** silently
+  fell back to `~/.prisma-sase.env`. That is worst exactly where the
+  variable is the only credential path — cloud sessions — where a typo'd
+  staged path looked like a working setup. `--selfcheck` and startup now
+  warn, naming the missing path and what (if anything) was used instead.
+- **FIX (low):** `limit=0` returned 20 rows instead of clamping to 1. A
+  parseable out-of-range number is now clamped; only unparseable input falls
+  back to the default.
+- **NEW:** `tools/test-regressions.py` — a stdlib-only, no-network
+  regression suite (20 tests) pinning each bug above plus the credential
+  audit, the secret-never-echoed guarantee, the version lockstep, and an
+  all-tools mock smoke test. Run with
+  `python3 tools/test-regressions.py`.
+- **CHG (docs):** `install.sh` no longer calls the env file "the PRIMARY
+  credential path" — the enable dialog is, and the file is the documented
+  fallback (completes the userConfig-first pass).
+
 ## 0.8.4 — 2026-07-25
 
 From a live install→use→uninstall walkthrough. Three gaps, one of them a

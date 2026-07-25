@@ -51,16 +51,35 @@ UNITS = {
 }
 
 
+# Exact state vocabulary. Substring matching used to be used here and it
+# silently mis-classified any state name CONTAINING "up" or "down" --
+# "Disrupted", "Setup", "backup" and "SUPERVISING" all counted as UP, so a
+# disrupted tunnel made the status headline say "all tunnels up" (the very
+# claim 0.8.4 set out to make honest). Anything not listed here falls through
+# to other_states, where the headline reports it as "not up" -- an unknown
+# state is never assumed healthy.
+_UP_STATES = frozenset(("up", "active", "established", "connected", "enabled"))
+_DOWN_STATES = frozenset(("down", "inactive", "disconnected", "failed",
+                          "disabled"))
+
+
 def _state_of(record):
-    """Normalized tunnel state: 'up' / 'down' / raw-lowercased / 'unknown'."""
+    """Normalized tunnel state: 'up' / 'down' / raw-lowercased / 'unknown'.
+
+    Matching is EXACT against the vocabularies above (numeric 1/0 included --
+    the live tunnel_state field is an int). Unrecognized values are returned
+    lowercased so the caller surfaces them in other_states rather than
+    guessing; see the comment on _UP_STATES for why substring matching is
+    unsafe here.
+    """
     for f in _STATE_FIELDS:
         v = record.get(f)
         if v in (None, ""):
             continue
         s = str(v).strip().lower()
-        if "up" in s:
+        if s in _UP_STATES or s == "1":
             return "up"
-        if "down" in s:
+        if s in _DOWN_STATES or s == "0":
             return "down"
         return s
     return "unknown"

@@ -37,7 +37,7 @@ import sys
 # in-conversation. MUST be bumped in lockstep with .claude-plugin/
 # marketplace.json (all three entries); tools/build-standalone.py fails the
 # build on a mismatch, and PUBLISHING.md documents the step.
-PLUGIN_VERSION = "0.8.4"
+PLUGIN_VERSION = "0.8.5"
 
 # --- Fixed, verified facts (design doc sec.3 -- do NOT change) ---------------
 AUTH_URL = "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
@@ -68,6 +68,7 @@ _PLACEHOLDER_RE = re.compile(r"^\s*\$\{[A-Za-z_][A-Za-z0-9_.]*\}\s*$")
 PLACEHOLDER_VARS = []   # names whose value arrived as a literal ${...}
 ENV_FILE_USED = None    # path of the env file actually loaded, if any
 ENV_FILE_KEYS = []      # keys adopted from that file
+ENV_FILE_MISSING = None # $PRISMA_ENV_FILE was set but no such file exists
 
 
 def _is_placeholder(value):
@@ -91,12 +92,21 @@ def _load_env_file():
 
     Search order: $PRISMA_ENV_FILE (if set), then ~/.prisma-sase.env.
     Only fills gaps -- a real environment value (non-placeholder) always wins.
+
+    An explicit $PRISMA_ENV_FILE that does not exist is recorded in
+    ENV_FILE_MISSING and surfaced by --selfcheck / startup. It used to be
+    skipped in silence, which bites hardest exactly where this variable is the
+    ONLY credential path -- cloud sessions, where a typo'd staged path quietly
+    loaded ~/.prisma-sase.env (or nothing) and the mismatch was invisible.
     """
-    global ENV_FILE_USED
+    global ENV_FILE_USED, ENV_FILE_MISSING
     paths = []
     explicit = _raw_env("PRISMA_ENV_FILE")
     if explicit:
-        paths.append(os.path.expanduser(explicit))
+        explicit_path = os.path.expanduser(explicit)
+        if not os.path.isfile(explicit_path):
+            ENV_FILE_MISSING = explicit_path
+        paths.append(explicit_path)
     paths.append(os.path.expanduser("~/.prisma-sase.env"))
 
     for path in paths:
@@ -270,13 +280,19 @@ def resolve_region(region=None):
 
 
 def clamp_limit(limit):
-    """Clamp a caller-supplied limit into [1, MAX_LIMIT], default on garbage."""
+    """Clamp a caller-supplied limit into [1, MAX_LIMIT], default on garbage.
+
+    A parseable out-of-range number is CLAMPED, not replaced by the default:
+    limit=0 or a negative asks for as few rows as possible, so returning 20
+    (as it did before) silently handed back more data than requested. Only
+    unparseable input (None, "abc") falls back to DEFAULT_LIMIT.
+    """
     try:
         limit = int(limit)
     except (TypeError, ValueError):
         return DEFAULT_LIMIT
     if limit < 1:
-        return DEFAULT_LIMIT
+        return 1
     return min(limit, MAX_LIMIT)
 
 
@@ -454,6 +470,7 @@ def env_diagnostics():
         "unexpanded_placeholders": list(PLACEHOLDER_VARS),
         "env_file": ENV_FILE_USED,
         "env_file_keys": list(ENV_FILE_KEYS),
+        "env_file_missing": ENV_FILE_MISSING,
         "region": DEFAULT_REGION or None,
         "secret_source": SECRET_SOURCE,
         "secret_cmd_set": bool(SECRET_CMD),
