@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Read-only Prisma SASE (Prisma Access) AI-assistant tools: MCP server + ops Skill. One code tree, three OS-specific catalog entries — install the one matching your OS.",
-    "version": "0.7.3"
+    "version": "0.8.0"
   },
   "plugins": [
     {
       "name": "prisma-sase-mac",
       "source": "./plugin",
       "description": "Prisma SASE read-only tools + ops Skill — macOS variant (launches via bash). Windows: prisma-sase-windows; Linux: prisma-sase-linux.",
-      "version": "0.7.3",
+      "version": "0.8.0",
       "author": {
         "name": "Eric (Solutions Consultant, Palo Alto Networks)"
       },
@@ -34,16 +34,45 @@
           "command": "bash",
           "args": [
             "${CLAUDE_PLUGIN_ROOT}/mcp/run.sh"
-          ]
+          ],
+          "env": {
+            "PRISMA_CLIENT_ID": "${user_config.client_id}",
+            "PRISMA_CLIENT_SECRET": "${user_config.client_secret}",
+            "PRISMA_TSG_ID": "${user_config.tsg_id}",
+            "PRISMA_REGION": "${user_config.region}"
+          }
         }
       },
-      "license": "MIT"
+      "license": "MIT",
+      "userConfig": {
+        "client_id": {
+          "type": "string",
+          "title": "Prisma SASE Client ID",
+          "description": "Service-account Client ID, e.g. apikey@1234567890.iam.panserviceaccount.com (see the README's API-key walkthrough)"
+        },
+        "client_secret": {
+          "type": "string",
+          "title": "Prisma SASE Client Secret",
+          "description": "Shown only once when the service account is created. Stored in your OS secure storage (macOS Keychain), never in plaintext settings. Leave empty to use ~/.prisma-sase.env or PRISMA_SECRET_CMD instead.",
+          "sensitive": true
+        },
+        "tsg_id": {
+          "type": "string",
+          "title": "TSG ID",
+          "description": "Tenant Service Group ID -- the digits after @ in the Client ID"
+        },
+        "region": {
+          "type": "string",
+          "title": "Region",
+          "description": "X-PANW-Region header value for your tenant, e.g. sg, us, de"
+        }
+      }
     },
     {
       "name": "prisma-sase-linux",
       "source": "./plugin",
       "description": "Prisma SASE read-only tools + ops Skill — Linux variant (launches via bash). macOS: prisma-sase-mac; Windows: prisma-sase-windows.",
-      "version": "0.7.3",
+      "version": "0.8.0",
       "author": {
         "name": "Eric (Solutions Consultant, Palo Alto Networks)"
       },
@@ -65,16 +94,45 @@
           "command": "bash",
           "args": [
             "${CLAUDE_PLUGIN_ROOT}/mcp/run.sh"
-          ]
+          ],
+          "env": {
+            "PRISMA_CLIENT_ID": "${user_config.client_id}",
+            "PRISMA_CLIENT_SECRET": "${user_config.client_secret}",
+            "PRISMA_TSG_ID": "${user_config.tsg_id}",
+            "PRISMA_REGION": "${user_config.region}"
+          }
         }
       },
-      "license": "MIT"
+      "license": "MIT",
+      "userConfig": {
+        "client_id": {
+          "type": "string",
+          "title": "Prisma SASE Client ID",
+          "description": "Service-account Client ID, e.g. apikey@1234567890.iam.panserviceaccount.com (see the README's API-key walkthrough)"
+        },
+        "client_secret": {
+          "type": "string",
+          "title": "Prisma SASE Client Secret",
+          "description": "Shown only once when the service account is created. Stored in your OS secure storage (macOS Keychain), never in plaintext settings. Leave empty to use ~/.prisma-sase.env or PRISMA_SECRET_CMD instead.",
+          "sensitive": true
+        },
+        "tsg_id": {
+          "type": "string",
+          "title": "TSG ID",
+          "description": "Tenant Service Group ID -- the digits after @ in the Client ID"
+        },
+        "region": {
+          "type": "string",
+          "title": "Region",
+          "description": "X-PANW-Region header value for your tenant, e.g. sg, us, de"
+        }
+      }
     },
     {
       "name": "prisma-sase-windows",
       "source": "./plugin",
       "description": "Prisma SASE read-only tools + ops Skill — Windows variant (launches via cmd / run.cmd). macOS: prisma-sase-mac; Linux: prisma-sase-linux.",
-      "version": "0.7.3",
+      "version": "0.8.0",
       "author": {
         "name": "Eric (Solutions Consultant, Palo Alto Networks)"
       },
@@ -97,10 +155,39 @@
           "args": [
             "/c",
             "${CLAUDE_PLUGIN_ROOT}\\mcp\\run.cmd"
-          ]
+          ],
+          "env": {
+            "PRISMA_CLIENT_ID": "${user_config.client_id}",
+            "PRISMA_CLIENT_SECRET": "${user_config.client_secret}",
+            "PRISMA_TSG_ID": "${user_config.tsg_id}",
+            "PRISMA_REGION": "${user_config.region}"
+          }
         }
       },
-      "license": "MIT"
+      "license": "MIT",
+      "userConfig": {
+        "client_id": {
+          "type": "string",
+          "title": "Prisma SASE Client ID",
+          "description": "Service-account Client ID, e.g. apikey@1234567890.iam.panserviceaccount.com (see the README's API-key walkthrough)"
+        },
+        "client_secret": {
+          "type": "string",
+          "title": "Prisma SASE Client Secret",
+          "description": "Shown only once when the service account is created. Stored in your OS secure storage (macOS Keychain), never in plaintext settings. Leave empty to use ~/.prisma-sase.env or PRISMA_SECRET_CMD instead.",
+          "sensitive": true
+        },
+        "tsg_id": {
+          "type": "string",
+          "title": "TSG ID",
+          "description": "Tenant Service Group ID -- the digits after @ in the Client ID"
+        },
+        "region": {
+          "type": "string",
+          "title": "Region",
+          "description": "X-PANW-Region header value for your tenant, e.g. sg, us, de"
+        }
+      }
     }
   ]
 }

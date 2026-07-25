@@ -94,11 +94,15 @@ repository** → enter this repo (`eric2q/prisma-sase-plugin` or the full git UR
 /plugin install prisma-sase-windows@prisma-sase  # Windows
 ```
 
-**3. Credentials — create the API key and fill it in** (walkthrough below).
-The four values go into `~/.prisma-sase.env` (Windows:
-`%USERPROFILE%\.prisma-sase.env`; the template was created by the install
-script). Restart the Claude app afterwards. Full details, selfcheck and
-troubleshooting: [`plugin/README.md`](plugin/README.md).
+**3. Credentials — create the API key** (walkthrough below), then provide the
+four values. **Marketplace installs prompt for them when you enable the
+plugin** (a form pops up; the Client Secret goes into your OS secure storage
+— macOS Keychain — never a plaintext file). Prefer that. The classic
+`~/.prisma-sase.env` file (Windows: `%USERPROFILE%\.prisma-sase.env`;
+template created by the install script) remains fully supported — it's the
+path for cloud sessions, CI, and hosts without the dialog. Restart the
+Claude app afterwards. Full details, selfcheck and troubleshooting:
+[`plugin/README.md`](plugin/README.md).
 
 ## Getting the API key (read-only service account)
 
@@ -150,25 +154,37 @@ under the correct TSG scope and bind only the tenants you need.
 
 <img src="plugin/docs/images/scm-4-assign-roles.png" alt="Assign Roles: All Apps & Services + View Only Administrator → Submit" width="640">
 
-**Fill in the env file** with the values from step 3 (`KEY=VALUE`, no quotes;
-masked here with asterisks):
+**Provide the values from step 3** — two supported paths:
 
-```
-PRISMA_CLIENT_ID=apikey@**********.iam.panserviceaccount.com
-PRISMA_CLIENT_SECRET=********************************
-PRISMA_TSG_ID=**********
-PRISMA_REGION=sg
-```
+- **Plugin enable dialog (recommended on Desktop):** when you install/enable
+  the plugin from the marketplace, Claude prompts for Client ID, Client
+  Secret, TSG ID, and Region. The secret is stored in your **OS secure
+  storage** (macOS Keychain), not in any plaintext file.
+- **Env file** (`~/.prisma-sase.env`, `KEY=VALUE`, no quotes; masked here
+  with asterisks) — for cloud sessions, CI, or hosts without the dialog:
+
+  ```
+  PRISMA_CLIENT_ID=apikey@**********.iam.panserviceaccount.com
+  PRISMA_CLIENT_SECRET=********************************
+  PRISMA_TSG_ID=**********
+  PRISMA_REGION=sg
+  ```
+
+  The secret line can instead point at a secret store, keeping the file
+  non-sensitive: `PRISMA_SECRET_CMD=security find-generic-password -s
+  prisma-sase -w` (also works with `secret-tool`, `pass`, `op read`).
 
 `PRISMA_TSG_ID` = the digits after `@` in the Client ID; `PRISMA_REGION` =
 your tenant's actual region (e.g. `sg`, `us`, `de`). Then restart the Claude
-app and (optionally) verify with the server's `--selfcheck`.
+app and (optionally) verify with the server's `--selfcheck` — it reports
+which source supplied the secret.
 
-**Storage principle:** this env file on your **local machine** is the
-credentials' only long-term home (`chmod 600`). Never commit it to a repo,
-never keep copies in project folders, and never paste its contents anywhere
-— for cloud sessions, use a temporary staged copy and delete it afterwards
-(see [`plugin/README.md`](plugin/README.md), "Cloud sessions").
+**Storage principle:** credentials live in exactly one of the supported
+homes — the OS secure storage (via the enable dialog / `PRISMA_SECRET_CMD`)
+or the local env file (`chmod 600`) — and nowhere else. Never commit them to
+a repo, never keep copies in project folders, and never paste the secret
+anywhere — for cloud sessions, use a temporary staged copy and delete it
+afterwards (see [`plugin/README.md`](plugin/README.md), "Cloud sessions").
 
 > ⚠️ **Never paste the Client Secret into a chat, message window, or document.**
 > The tools deliberately take no credential parameters — credentials only ever

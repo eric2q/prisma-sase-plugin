@@ -1,5 +1,60 @@
 # Changelog
 
+## 0.8.0 — 2026-07-24
+
+Credentials leave plaintext: enable-dialog (userConfig) + secret-command
+backends. Addresses the cross-agent risk that any agent with shell access
+can read a plaintext env file — now there need be nothing sensitive to read.
+
+- **NEW (userConfig):** all three catalog entries (and the generated
+  standalone manifests) declare `userConfig` — installing/enabling the
+  plugin prompts for Client ID / Client Secret / TSG ID / Region in a
+  dialog. The secret is `sensitive`: hosts store it in the OS secure
+  storage (macOS Keychain) and inject it into the server env via
+  `${user_config.*}` substitution. No env file needed on Desktop.
+- **NEW (PRISMA_SECRET_CMD):** credential-process pattern — when
+  `PRISMA_CLIENT_SECRET` is otherwise unset, the server runs the
+  configured command and reads the secret from stdout (macOS `security`,
+  `secret-tool`, `pass`, 1Password `op read`, ...). The env file can then
+  hold only non-sensitive values. stderr is discarded, never logged.
+- **CHG (safety net):** the `${...}` placeholder detector now also matches
+  dotted names (`${user_config.client_secret}`), so a host that passes
+  userConfig values through unexpanded is detected — values treated as
+  unset with a named explanation, falling through to the env file, instead
+  of sending the literal string to the auth API (the v0.2.0 bug's twin).
+- **CHG:** `--selfcheck` reports the secret's source (environment /
+  userConfig, env file — flagged as plaintext with upgrade hints, or
+  PRISMA_SECRET_CMD) and diagnoses a secret command that returns nothing.
+- **CHG:** `tools/build-standalone.py` now takes `mcpServers` and
+  `userConfig` verbatim from the marketplace entries (one source of truth;
+  the hardcoded launcher configs are gone). install.sh/install.bat env
+  templates document that every line may stay empty when the dialog is
+  used, and show PRISMA_SECRET_CMD examples.
+- **DOC:** credential docs rewritten around the supported-homes model (OS
+  secure storage / local env file / secret store — nowhere else): both
+  root READMEs, plugin/README (sources + precedence, env-var table), and
+  the Skill's credential rules — including the clarification that the
+  host's enable dialog is settings UI, not "the conversation".
+
+## 0.7.4 — 2026-07-24
+
+Consistency release: record the one live datapoint we have, and make the
+three-entry lockstep rule machine-enforced.
+
+- **DOC:** `prisma_sase_external_alerts_current` docs no longer say "pending
+  live verification" — the one live test so far was NEGATIVE (sg tenant,
+  DATA10003, view absent; issue #9). endpoints.md, api-catalog.md, and the
+  config.py mapping comment now record that result, note availability is
+  tenant-version dependent, state the cost (one failing call per
+  query_alerts before the aggregate fallback on such tenants), and point to
+  the UI-capture workflow as the manual path.
+- **NEW:** `tools/build-standalone.py` now fails if the three catalog
+  entries drift on anything other than `name`/`description`/`keywords`/
+  `mcpServers`, or if mac/linux stop sharing an identical bash launcher —
+  the "keep entries in lockstep" rule is a build failure instead of human
+  discipline (groundwork for adding `userConfig` to all three safely).
+  PUBLISHING.md documents the enforced invariant.
+
 ## 0.7.3 — 2026-07-24
 
 Follow-ups to the cloud-session report: teach the AI to READ the breadcrumb,

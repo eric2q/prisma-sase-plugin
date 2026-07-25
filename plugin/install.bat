@@ -63,12 +63,16 @@ rem -- 4) credential template ----------------------------------------------
 set "ENVF=%USERPROFILE%\.prisma-sase.env"
 if not exist "%ENVF%" (
   (
-    echo # prisma-sase credentials -- fill in the values below ^(KEY=VALUE, no quotes needed^).
-    echo # This file is the recommended way to provide credentials.
+    echo # prisma-sase credentials ^(KEY=VALUE, no quotes needed^).
+    echo # Marketplace installs: the plugin's enable dialog ^(userConfig^) can supply
+    echo # all four values -- every line here may then stay empty. This file remains
+    echo # the path for cloud sessions, CI, and hosts without the dialog.
     echo PRISMA_CLIENT_ID=
-    echo PRISMA_CLIENT_SECRET=
     echo PRISMA_TSG_ID=
     echo PRISMA_REGION=sg
+    echo # Secret: plaintext here, or fetch from a store at startup, e.g.:
+    echo #   PRISMA_SECRET_CMD=op read "op://Private/prisma-sase/client secret"
+    echo PRISMA_CLIENT_SECRET=
   ) > "%ENVF%"
   echo -- created credential template %ENVF% -- fill in your values
 ) else (

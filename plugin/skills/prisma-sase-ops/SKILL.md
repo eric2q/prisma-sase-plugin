@@ -171,14 +171,20 @@ do not give up — bootstrap in ~2 minutes:
 
 ## Credential handling rules — enforce these when guiding users
 
-1. **Canonical home: the user's LOCAL machine, and only there** —
-   `~/.prisma-sase.env` (Windows: `%USERPROFILE%\.prisma-sase.env`),
-   `chmod 600`. Never suggest keeping credentials in project folders, git
-   repos, notes, shared drives, or cloud storage. One file, one place.
+1. **Only the supported homes, nowhere else.** Credentials live in exactly
+   one of: (a) the **plugin enable dialog** (userConfig — the secret lands
+   in the OS secure storage; the recommended path on Desktop), (b) the
+   **local env file** `~/.prisma-sase.env` (Windows:
+   `%USERPROFILE%\.prisma-sase.env`, `chmod 600`), or (c) a secret store
+   reached via **`PRISMA_SECRET_CMD`** (Keychain / secret-tool / pass /
+   1Password). Never suggest project folders, git repos, notes, shared
+   drives, or cloud storage.
 2. **Never in the conversation.** Do not ask for, accept, or echo
    `PRISMA_CLIENT_SECRET` (or full env-file contents) in chat — the tools
    take no credential parameters by design. If a user starts pasting a
-   secret, stop them and point to the env file instead.
+   secret, stop them and point to a supported home instead. **The host's
+   plugin enable dialog is settings UI, not the conversation** — telling a
+   user to fill it in is correct, not a violation.
 3. **Cloud sessions get a TEMPORARY staged copy only** (bootstrap runbook
    step 3): a non-dotfile copy in an authorized folder + `PRISMA_ENV_FILE`.
    It is a working copy, not a second home — when the session's work is

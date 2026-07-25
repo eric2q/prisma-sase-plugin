@@ -37,7 +37,7 @@ import sys
 # in-conversation. MUST be bumped in lockstep with .claude-plugin/
 # marketplace.json (all three entries); tools/build-standalone.py fails the
 # build on a mismatch, and PUBLISHING.md documents the step.
-PLUGIN_VERSION = "0.7.3"
+PLUGIN_VERSION = "0.8.0"
 
 # --- Fixed, verified facts (design doc sec.3 -- do NOT change) ---------------
 AUTH_URL = "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
@@ -59,7 +59,11 @@ def insights_path(resource, view=None):
     return base + "/" + view if view else base
 
 # --- v0.2.0: placeholder detection + env-file fallback -----------------------
-_PLACEHOLDER_RE = re.compile(r"^\s*\$\{[A-Za-z_][A-Za-z0-9_]*\}\s*$")
+# v0.8.0: the dot is allowed so ${user_config.client_secret}-style plugin
+# userConfig placeholders are ALSO detected when a host passes them through
+# unexpanded (older hosts / unsupported surfaces) -- without this, the literal
+# string would be sent to the auth API as the secret (the v0.2.0 bug's twin).
+_PLACEHOLDER_RE = re.compile(r"^\s*\$\{[A-Za-z_][A-Za-z0-9_.]*\}\s*$")
 
 PLACEHOLDER_VARS = []   # names whose value arrived as a literal ${...}
 ENV_FILE_USED = None    # path of the env file actually loaded, if any
@@ -144,6 +148,38 @@ DEFAULT_TSG_ID = _env("PRISMA_TSG_ID")
 DEFAULT_REGION = _env("PRISMA_REGION")
 DEFAULT_SUBTENANT = _env("PRISMA_SUBTENANT_ID")
 
+# --- v0.8.0: secret backends --------------------------------------------------
+# Where did CLIENT_SECRET come from? Order of precedence:
+#   1. environment (host-provided -- includes the plugin userConfig dialog,
+#      whose sensitive values live in the OS secure storage and arrive here
+#      as an env var; also plain shell exports)
+#   2. env file (~/.prisma-sase.env or $PRISMA_ENV_FILE)
+#   3. PRISMA_SECRET_CMD -- run a user-configured command and read the secret
+#      from its stdout (credential-process pattern, like AWS
+#      credential_process / git credential helpers). Lets the secret live in
+#      macOS Keychain / secret-tool / pass / 1Password instead of plaintext:
+#        PRISMA_SECRET_CMD=security find-generic-password -s prisma-sase -w
+#      The command is user-owned configuration executed with the user's own
+#      privileges (same trust level as run.sh itself). Output is stripped;
+#      stderr is discarded and never logged (it could echo secret material).
+SECRET_SOURCE = None
+if CLIENT_SECRET:
+    SECRET_SOURCE = ("env_file" if "PRISMA_CLIENT_SECRET" in ENV_FILE_KEYS
+                     else "environment")
+SECRET_CMD = _env("PRISMA_SECRET_CMD")
+if not CLIENT_SECRET and SECRET_CMD:
+    try:
+        import subprocess
+        _proc = subprocess.run(SECRET_CMD, shell=True, capture_output=True,
+                               text=True, timeout=15)
+        if _proc.returncode == 0 and _proc.stdout.strip():
+            CLIENT_SECRET = _proc.stdout.strip()
+            SECRET_SOURCE = "secret_cmd"
+    except Exception:
+        # Never crash config import over a helper command; selfcheck and the
+        # missing-credential errors will name the gap.
+        pass
+
 # --- Behaviour flags ---------------------------------------------------------
 MOCK_MODE = _env("PRISMA_MOCK").strip().lower() in ("1", "true", "yes", "on")
 try:
@@ -178,8 +214,12 @@ TOKEN_RENEW_MARGIN = 120        # refresh when <=2 min remain -> ~13 min effecti
 #     resource, no view): per PANW guidance (2026-07-24) this is the correct
 #     Insights 3.0 view for PER-ALERT rows with severity (properties include
 #     alert_id, severity, severity_id, state e.g. "Raised"/"RaisedChild",
-#     updated_time). Marked unverified until confirmed on a live tenant --
-#     discover_insights(kind="alerts_detail") probes it first.
+#     updated_time). LIVE RESULT SO FAR: NEGATIVE on the sg tenant
+#     (DATA10003, view absent -- issue #9, 2026-07-24); availability is
+#     tenant-version dependent, so it stays the leading unverified candidate.
+#     Cost on tenants without it: one failing call per query_alerts before
+#     the aggregate fallback. discover_insights(kind="alerts_detail") probes
+#     it first; the UI-capture workflow (endpoints.md) is the manual path.
 # "payload" records which filter shape the view accepts (informational; the
 # client auto-injects a time filter when the caller provides no rules).
 INSIGHTS_MAP = {
@@ -278,4 +318,6 @@ def env_diagnostics():
         "env_file": ENV_FILE_USED,
         "env_file_keys": list(ENV_FILE_KEYS),
         "region": DEFAULT_REGION or None,
+        "secret_source": SECRET_SOURCE,
+        "secret_cmd_set": bool(SECRET_CMD),
     }

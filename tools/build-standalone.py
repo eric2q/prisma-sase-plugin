@@ -19,15 +19,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLUGIN_DIR = os.path.join(ROOT, "plugin")
 DIST = os.path.join(ROOT, "dist")
 
-_BASH = {"mcpServers": {"prisma-sase": {
-    "command": "bash", "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/run.sh"]}}}
-_CMD = {"mcpServers": {"prisma-sase": {
-    "command": "cmd", "args": ["/c", "${CLAUDE_PLUGIN_ROOT}\\mcp\\run.cmd"]}}}
-MCP_CONFIGS = {
-    "prisma-sase-mac": _BASH,
-    "prisma-sase-linux": _BASH,
-    "prisma-sase-windows": _CMD,
-}
+# Since v0.8.0 the launcher config (incl. the userConfig env substitutions)
+# is taken verbatim from each marketplace entry -- one source of truth, the
+# two install paths cannot drift.
+PLUGIN_NAMES = ("prisma-sase-mac", "prisma-sase-linux", "prisma-sase-windows")
 
 EXCLUDE_DIRS = {"__pycache__", ".git"}
 EXCLUDE_SUFFIX = (".pyc", ".DS_Store")
@@ -57,15 +52,56 @@ def _check_version_sync(market):
                  "(see PUBLISHING.md)." % (code_ver, sorted(market_vers)))
 
 
+# Fields that legitimately differ between the three catalog entries. name/
+# description/keywords are per-OS presentation; mcpServers carries the per-OS
+# launcher (with the extra invariant that mac and linux share the bash one).
+_ENTRY_DIFF_ALLOWED = {"name", "description", "keywords", "mcpServers"}
+
+
+def _check_entry_sync(market):
+    """Fail if the three catalog entries drift outside the allowed fields.
+
+    The three entries are ONE plugin presented per-OS: everything except the
+    allowed presentation/launcher fields must be byte-identical, and the
+    mac/linux entries must share an identical bash launcher. This turns the
+    'keep the entries in lockstep' rule from human discipline into a build
+    failure -- important before any future field (e.g. userConfig) lands in
+    all three.
+    """
+    entries = {p["name"]: p for p in market["plugins"]}
+    expected = {"prisma-sase-mac", "prisma-sase-linux", "prisma-sase-windows"}
+    if set(entries) != expected:
+        sys.exit("ERROR: marketplace entries %s != expected %s"
+                 % (sorted(entries), sorted(expected)))
+
+    def core(entry):
+        return {k: v for k, v in entry.items() if k not in _ENTRY_DIFF_ALLOWED}
+
+    ref_name = "prisma-sase-mac"
+    for name in ("prisma-sase-linux", "prisma-sase-windows"):
+        if core(entries[name]) != core(entries[ref_name]):
+            diff_keys = sorted(
+                k for k in set(core(entries[name])) | set(core(entries[ref_name]))
+                if core(entries[name]).get(k) != core(entries[ref_name]).get(k))
+            sys.exit("ERROR: catalog entry '%s' drifted from '%s' on field(s) "
+                     "%s -- entries must stay in lockstep outside %s "
+                     "(see PUBLISHING.md)."
+                     % (name, ref_name, diff_keys, sorted(_ENTRY_DIFF_ALLOWED)))
+    if entries["prisma-sase-mac"]["mcpServers"] != entries["prisma-sase-linux"]["mcpServers"]:
+        sys.exit("ERROR: prisma-sase-mac and prisma-sase-linux must share an "
+                 "identical bash launcher (mcpServers differs).")
+
+
 def main():
     with open(os.path.join(ROOT, ".claude-plugin", "marketplace.json"),
               encoding="utf-8") as fh:
         market = json.load(fh)
     _check_version_sync(market)
+    _check_entry_sync(market)
     entries = {p["name"]: p for p in market["plugins"]}
 
     os.makedirs(DIST, exist_ok=True)
-    for name, mcp_cfg in MCP_CONFIGS.items():
+    for name in PLUGIN_NAMES:
         entry = entries[name]
         manifest = {
             "name": name,
@@ -74,6 +110,9 @@ def main():
             "author": entry.get("author", {}),
             "keywords": entry.get("keywords", []),
         }
+        if entry.get("userConfig"):
+            manifest["userConfig"] = entry["userConfig"]
+        mcp_cfg = {"mcpServers": entry["mcpServers"]}
         out = os.path.join(DIST, "%s.plugin" % name)
         with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
             for full, rel in tree_files():
