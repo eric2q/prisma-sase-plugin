@@ -138,6 +138,13 @@ def _extract_score(data):
         return {"overall": None, "components": None, "worst_component": None,
                 "row_count": None}
     overall = data.get("overall_score", data.get("score"))
+    if overall is None:
+        # Other aggregate-score key names seen/reported across tenants.
+        for key in ("endpointScore", "endpoint_score", "experienceScore",
+                    "experience_score"):
+            if isinstance(data.get(key), (int, float)):
+                overall = data[key]
+                break
     comps = data.get("components") or data.get("score_components")
 
     average = data.get("average")

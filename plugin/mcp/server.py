@@ -117,6 +117,12 @@ def _selfcheck():
                     if importlib.util.find_spec(p) is None]
 
     print("prisma-sase selfcheck (plugin v%s)" % config.PLUGIN_VERSION)
+    _stale = config.stale_version_check()
+    if _stale:
+        print("  UPDATE PENDING: v%s is installed on disk but this code is "
+              "v%s.\n                  Restart the app to load it (Desktop: "
+              "Cmd-Q; CLI: /reload-plugins)."
+              % (_stale["installed"], _stale["running"]))
     print("  python:       %s  (%s)" % (d["python"], d["executable"]))
     print("  packages:     %s" % ("fastmcp OK, httpx OK" if not missing_pkgs
                                   else "MISSING: " + ", ".join(missing_pkgs)))
@@ -348,6 +354,12 @@ def discover_insights(kind: Optional[str] = None,
 def main():
     d = config.env_diagnostics()
     log.info("prisma-sase plugin v%s", config.PLUGIN_VERSION)
+    _stale = config.stale_version_check()
+    if _stale:
+        log.warning("A newer version (v%s) is installed at %s but this process "
+                    "runs v%s -- restart the app to load it.",
+                    _stale["installed"], _stale["install_root"],
+                    _stale["running"])
     log.info("interpreter: Python %s at %s", d["python"], d["executable"])
     if d["env_file"]:
         log.info("env file: %s (supplied: %s)", d["env_file"],
