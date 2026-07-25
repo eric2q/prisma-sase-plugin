@@ -97,11 +97,11 @@ repository** → enter this repo (`eric2q/prisma-sase-plugin` or the full git UR
 **3. Credentials — create the API key** (walkthrough below), then provide the
 four values. **Marketplace installs prompt for them when you enable the
 plugin** (a form pops up; the Client Secret goes into your OS secure storage
-— macOS Keychain — never a plaintext file). Prefer that. The classic
+— macOS Keychain — never a plaintext file). Use that. The
 `~/.prisma-sase.env` file (Windows: `%USERPROFILE%\.prisma-sase.env`;
-template created by the install script) remains fully supported — it's the
-path for cloud sessions, CI, and hosts without the dialog. Restart the
-Claude app afterwards. Full details, selfcheck and troubleshooting:
+template created by the install script) is the fallback for cloud sessions,
+CI, and hosts without the dialog — and stays the place for the optional
+tuning variables the dialog doesn't cover. Restart the Claude app afterwards. Full details, selfcheck and troubleshooting:
 [`plugin/README.md`](plugin/README.md).
 
 ## Getting the API key (read-only service account)
@@ -161,7 +161,8 @@ under the correct TSG scope and bind only the tenants you need.
   Secret, TSG ID, and Region. The secret is stored in your **OS secure
   storage** (macOS Keychain), not in any plaintext file.
 - **Env file** (`~/.prisma-sase.env`, `KEY=VALUE`, no quotes; masked here
-  with asterisks) — for cloud sessions, CI, or hosts without the dialog:
+  with asterisks) — the fallback for cloud sessions, CI, or hosts without
+  the dialog:
 
   ```
   PRISMA_CLIENT_ID=apikey@**********.iam.panserviceaccount.com

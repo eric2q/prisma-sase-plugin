@@ -58,7 +58,9 @@ Every tool takes optional `tsg_id` and `region` to target a specific tenant
    probes candidate resource/view names read-only, separates auth problems from
    naming problems via a documented control probe, and returns a paste-ready
    `PRISMA_INSIGHTS_MAP`. Walk the user through adding that JSON (single line)
-   to `~/.prisma-sase.env`, then re-run the failing tool. **If the response
+   to `~/.prisma-sase.env` — the plugin enable dialog covers only the four
+   credential fields, so tuning variables like this one live in the env file
+   even when credentials came from the dialog — then re-run the failing tool. **If the response
    lists kinds under `matches_shipped_defaults`, tell the user those need no
    env change** — the discovered names are already this version's built-in
    verified defaults; only `suggested_insights_map` entries are worth persisting.
