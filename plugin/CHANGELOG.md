@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.8.4 — 2026-07-25
+
+From a live install→use→uninstall walkthrough. Three gaps, one of them a
+security one and one an honesty bug in the headline.
+
+- **FIX (honesty, high):** the status headline could say **"Healthy"** while
+  tunnels were not actually up. Tunnels in `other_states` (e.g. one stuck in
+  `init` — never established) and tunnels that are up but whose
+  **monitoring is down** (traffic flows, health unobserved) were both
+  invisible to it; a live tenant had one of the former and two of the latter.
+  Both are now counted, named (`not_up_names`, `monitoring_down_names`), and
+  reported in the headline. SKILL forbids rounding "12 up, 0 down" up to
+  "all good".
+- **NEW (security):** `--selfcheck` audits credential files — warns when any
+  `~/.prisma-sase*.env` is readable beyond the owner (a stray file with a
+  plaintext secret at mode 644 was found only during removal), and lists
+  look-alike files the plugin never reads so forgotten copies surface. Paths
+  and mode bits only; contents are never read.
+- **NEW (uninstall):** `plugin/uninstall.sh` removes what the host
+  uninstaller cannot — the ~100 MB `~/.prisma-sase-venv`, credential files,
+  and the launch log — listing everything first and prompting before
+  deleting (`--dry-run`, `--yes`, `--keep-credentials`), then printing the
+  `claude plugin uninstall` / `marketplace remove` commands and a
+  rotate-your-secret reminder. plugin/README gains an **Uninstalling**
+  section documenting exactly what each side removes.
+
 ## 0.8.3 — 2026-07-25
 
 - **NEW:** the server detects when **it is itself out of date**. Hosts keep an

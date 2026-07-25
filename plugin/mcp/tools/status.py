@@ -104,6 +104,11 @@ def _tunnels(tsg_id, region):
            "down_names": (r.get("down_names") or [])[:config.DEFAULT_LIMIT]}
     if r.get("other_states"):
         out["other_states"] = r["other_states"]
+        out["not_up_names"] = (r.get("not_up_names") or [])[:config.DEFAULT_LIMIT]
+    if r.get("monitoring_down"):
+        out["monitoring_down"] = r["monitoring_down"]
+        out["monitoring_down_names"] = (
+            r.get("monitoring_down_names") or [])[:config.DEFAULT_LIMIT]
     return out
 
 
@@ -145,8 +150,19 @@ def _headline(sections):
 
     # connectivity
     c = sections.get("connectivity") or {}
-    if "error" not in c and c.get("tunnels_down"):
-        problems.append("%d tunnel(s) down" % c["tunnels_down"])
+    if "error" not in c:
+        if c.get("tunnels_down"):
+            problems.append("%d tunnel(s) down" % c["tunnels_down"])
+        # Tunnels that are neither up nor down (e.g. stuck in 'init') never
+        # established -- previously the headline could say "Healthy" with one
+        # of these present. Never again.
+        for state, count in sorted((c.get("other_states") or {}).items()):
+            problems.append("%d tunnel(s) in '%s' state (not up)"
+                            % (count, state))
+        # Up but unmonitored: traffic flows, health is unobserved.
+        if c.get("monitoring_down"):
+            problems.append("%d tunnel(s) up but with monitoring down "
+                            "(health unobserved)" % c["monitoring_down"])
 
     # experience
     e = sections.get("experience") or {}

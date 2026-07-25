@@ -93,7 +93,12 @@ per-section `error`/`hint` says). The `checks` object gives the counts.
 - **ADEM scores** are always reported **with their rating band** (see
   `references/thresholds.md`), not as a bare number. A score below 70 is
   "degraded" and should be called out, with the weakest component named.
-- **Tunnels**: state up/down counts and name the ones that are **down**.
+- **Tunnels**: state up/down counts and name the ones that are **down**. Two
+  more states matter and are NOT "fine": tunnels in `other_states` (e.g.
+  `init` — never established; see `not_up_names`) and tunnels that are up
+  with `monitoring_down` (traffic flows but health is unobserved; see
+  `monitoring_down_names`). Both appear in the headline — report them, don't
+  round "12 up, 0 down" up to "all good".
 - **Throughput is in Kbps** — the field names carry the unit
   (`avg/peak/p95_throughput_kbps`) and every response includes a `units` block.
   When presenting to humans, convert to Mbps (÷1000, one decimal) and **always
