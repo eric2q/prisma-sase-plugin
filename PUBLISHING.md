@@ -59,6 +59,12 @@ One push updates all three. Do not add a `.mcp.json` or `.claude-plugin/plugin.j
 back into `plugin/` — under `strict: false` a component-declaring manifest
 inside the plugin would conflict with the catalog entries.
 
+The lockstep rule is machine-enforced: `tools/build-standalone.py` fails if
+the three entries differ on anything other than `name` / `description` /
+`keywords` / `mcpServers`, or if the mac and linux entries stop sharing an
+identical bash launcher. When adding a new field (e.g. `userConfig`), add it
+to all three entries in the same edit — the build check will catch a miss.
+
 ## Standalone .plugin files (optional)
 
 For machines that cannot reach the git host (customer demo laptops, air-gapped),

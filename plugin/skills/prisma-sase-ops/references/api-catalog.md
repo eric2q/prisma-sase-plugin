@@ -62,8 +62,11 @@ Names actually documented on pan.dev:
   resource (queried with no view component) that returns **per-alert rows
   with severity** (`alert_id`, `severity`, `severity_id`, `state`,
   `updated_time`). Per PANW guidance (2026-07-24) this is the correct
-  severity source; it is the shipped `alerts_detail` default, pending live
-  verification.
+  severity source and it ships as the `alerts_detail` default — but the one
+  live test so far was **negative** (sg tenant: `DATA10003`, view absent;
+  issue #9). Availability is evidently tenant-version dependent; if
+  discovery finds nothing, capture the real name from the SASE UI
+  (endpoints.md workflow).
 - Further views named in PANW guidance: `locations/location_summary`,
   `locations/noc_location_list_rn_sc`, `sites/rn_list`, `sites/sc_list`,
   `sites/site_status`, `users/all/user_list_all`, `activity_insights/threats`,

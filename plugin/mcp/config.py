@@ -37,7 +37,7 @@ import sys
 # in-conversation. MUST be bumped in lockstep with .claude-plugin/
 # marketplace.json (all three entries); tools/build-standalone.py fails the
 # build on a mismatch, and PUBLISHING.md documents the step.
-PLUGIN_VERSION = "0.7.3"
+PLUGIN_VERSION = "0.7.4"
 
 # --- Fixed, verified facts (design doc sec.3 -- do NOT change) ---------------
 AUTH_URL = "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
@@ -178,8 +178,12 @@ TOKEN_RENEW_MARGIN = 120        # refresh when <=2 min remain -> ~13 min effecti
 #     resource, no view): per PANW guidance (2026-07-24) this is the correct
 #     Insights 3.0 view for PER-ALERT rows with severity (properties include
 #     alert_id, severity, severity_id, state e.g. "Raised"/"RaisedChild",
-#     updated_time). Marked unverified until confirmed on a live tenant --
-#     discover_insights(kind="alerts_detail") probes it first.
+#     updated_time). LIVE RESULT SO FAR: NEGATIVE on the sg tenant
+#     (DATA10003, view absent -- issue #9, 2026-07-24); availability is
+#     tenant-version dependent, so it stays the leading unverified candidate.
+#     Cost on tenants without it: one failing call per query_alerts before
+#     the aggregate fallback. discover_insights(kind="alerts_detail") probes
+#     it first; the UI-capture workflow (endpoints.md) is the manual path.
 # "payload" records which filter shape the view accepts (informational; the
 # client auto-injects a time filter when the caller provides no rules).
 INSIGHTS_MAP = {

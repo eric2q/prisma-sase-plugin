@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.4 — 2026-07-24
+
+Consistency release: record the one live datapoint we have, and make the
+three-entry lockstep rule machine-enforced.
+
+- **DOC:** `prisma_sase_external_alerts_current` docs no longer say "pending
+  live verification" — the one live test so far was NEGATIVE (sg tenant,
+  DATA10003, view absent; issue #9). endpoints.md, api-catalog.md, and the
+  config.py mapping comment now record that result, note availability is
+  tenant-version dependent, state the cost (one failing call per
+  query_alerts before the aggregate fallback on such tenants), and point to
+  the UI-capture workflow as the manual path.
+- **NEW:** `tools/build-standalone.py` now fails if the three catalog
+  entries drift on anything other than `name`/`description`/`keywords`/
+  `mcpServers`, or if mac/linux stop sharing an identical bash launcher —
+  the "keep entries in lockstep" rule is a build failure instead of human
+  discipline (groundwork for adding `userConfig` to all three safely).
+  PUBLISHING.md documents the enforced invariant.
+
 ## 0.7.3 — 2026-07-24
 
 Follow-ups to the cloud-session report: teach the AI to READ the breadcrumb,

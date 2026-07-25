@@ -57,11 +57,52 @@ def _check_version_sync(market):
                  "(see PUBLISHING.md)." % (code_ver, sorted(market_vers)))
 
 
+# Fields that legitimately differ between the three catalog entries. name/
+# description/keywords are per-OS presentation; mcpServers carries the per-OS
+# launcher (with the extra invariant that mac and linux share the bash one).
+_ENTRY_DIFF_ALLOWED = {"name", "description", "keywords", "mcpServers"}
+
+
+def _check_entry_sync(market):
+    """Fail if the three catalog entries drift outside the allowed fields.
+
+    The three entries are ONE plugin presented per-OS: everything except the
+    allowed presentation/launcher fields must be byte-identical, and the
+    mac/linux entries must share an identical bash launcher. This turns the
+    'keep the entries in lockstep' rule from human discipline into a build
+    failure -- important before any future field (e.g. userConfig) lands in
+    all three.
+    """
+    entries = {p["name"]: p for p in market["plugins"]}
+    expected = {"prisma-sase-mac", "prisma-sase-linux", "prisma-sase-windows"}
+    if set(entries) != expected:
+        sys.exit("ERROR: marketplace entries %s != expected %s"
+                 % (sorted(entries), sorted(expected)))
+
+    def core(entry):
+        return {k: v for k, v in entry.items() if k not in _ENTRY_DIFF_ALLOWED}
+
+    ref_name = "prisma-sase-mac"
+    for name in ("prisma-sase-linux", "prisma-sase-windows"):
+        if core(entries[name]) != core(entries[ref_name]):
+            diff_keys = sorted(
+                k for k in set(core(entries[name])) | set(core(entries[ref_name]))
+                if core(entries[name]).get(k) != core(entries[ref_name]).get(k))
+            sys.exit("ERROR: catalog entry '%s' drifted from '%s' on field(s) "
+                     "%s -- entries must stay in lockstep outside %s "
+                     "(see PUBLISHING.md)."
+                     % (name, ref_name, diff_keys, sorted(_ENTRY_DIFF_ALLOWED)))
+    if entries["prisma-sase-mac"]["mcpServers"] != entries["prisma-sase-linux"]["mcpServers"]:
+        sys.exit("ERROR: prisma-sase-mac and prisma-sase-linux must share an "
+                 "identical bash launcher (mcpServers differs).")
+
+
 def main():
     with open(os.path.join(ROOT, ".claude-plugin", "marketplace.json"),
               encoding="utf-8") as fh:
         market = json.load(fh)
     _check_version_sync(market)
+    _check_entry_sync(market)
     entries = {p["name"]: p for p in market["plugins"]}
 
     os.makedirs(DIST, exist_ok=True)
