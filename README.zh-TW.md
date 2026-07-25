@@ -179,6 +179,21 @@ secret 貼到任何地方;雲端 session 用暫時工作副本、用完即刪
 > 憑證參數,憑證只進本機憑證檔。若 secret 曾外流,請立即在 SCM 輪替,
 > 並更新憑證檔。
 
+## 如果 SASE 工具沒出現
+
+依序試這兩招 —— 專為「plugin 看起來裝好了,但對話裡完全沒有 Prisma SASE
+工具」這個情境設計:
+
+1. **請 Claude 執行 `prisma_sase_setup_required`。** 真正的 server 起不來
+   時,會由一個零依賴的替補 server 頂上,這個工具會回傳診斷結果與可直接
+   複製的修復指令。
+2. **查看 `~/.prisma-sase-launch.log`** —— 啟動軌跡,記錄選用了哪個直譯器
+   以及確切死因(**檔案完全不存在 = host 根本沒啟動 server**)。逐行判讀表:
+   [`plugin/README.md`](plugin/README.md#if-the-tools-dont-show-up-two-places-to-look)(英文)。
+
+修好之後,請**完全重啟 Claude 應用程式**(macOS 按 ⌘Q —— 只關視窗不會重新
+啟動 plugin server)。
+
 ## 更新
 
 維護者推送到本 repo 後,使用者在 Desktop 用

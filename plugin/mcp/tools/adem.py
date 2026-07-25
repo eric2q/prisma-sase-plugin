@@ -65,12 +65,32 @@ def get_user_experience(user=None, app=None, hours=24, start=None, end=None,
     }
     if score["worst_component"]:
         out["worst_component"] = score["worst_component"]
+    if score["row_count"] is not None:
+        out["row_count"] = score["row_count"]
+
     if score["overall"] is None:
         # Field report 2026-07-23: live tenant returned score=null. Surface the
         # response's actual shape (keys only, no values/PII) so the mapping can
         # be corrected instead of reporting a bare null.
         if isinstance(data, dict):
             out["no_data_debug"] = {"response_keys": list(data.keys())[:20]}
+            avg = data.get("average")
+            if isinstance(avg, dict):
+                out["no_data_debug"]["average_keys"] = list(avg.keys())[:20]
+        # 0.8.0 field report P2: rowCount == 0 means the API had NO agent
+        # samples in the window -- an empty window, not a broken mapping.
+        # Saying which one it is prevents a wild goose chase.
+        if score["row_count"] == 0:
+            out["no_data_reason"] = "empty_window"
+            out["note"] = (
+                "ADEM returned rowCount=0: there is no agent telemetry in this "
+                "window, so there is no score to report (this is NOT a mapping "
+                "problem). Widen 'hours', or check that ADEM-enabled agents "
+                "were connected -- if get_connected_users also shows 0, that "
+                "explains it.")
+            return out
+        if score["row_count"]:
+            out["no_data_reason"] = "shape_mismatch"
         elif isinstance(data, list):
             first = data[0] if data and isinstance(data[0], dict) else None
             out["no_data_debug"] = {
@@ -91,15 +111,48 @@ def get_user_experience(user=None, app=None, hours=24, start=None, end=None,
 
 
 def _extract_score(data):
+    """Pull the overall score + components out of the ADEM payload.
+
+    Live shape (0.8.0 field report P2, macOS/sg tenant): the response carries
+    ``startTime / endTime / endpointType / tenantServiceGroup / rowCount /
+    average`` -- no top-level ``score``. The score lives under ``average``,
+    which is either a bare number or a dict of per-metric averages (in which
+    case a 'score'-ish key is the overall and the rest are components).
+    """
     if not isinstance(data, dict):
-        return {"overall": None, "components": None, "worst_component": None}
+        return {"overall": None, "components": None, "worst_component": None,
+                "row_count": None}
     overall = data.get("overall_score", data.get("score"))
     comps = data.get("components") or data.get("score_components")
+
+    average = data.get("average")
+    if overall is None and isinstance(average, (int, float)):
+        overall = average
+    elif isinstance(average, dict) and average:
+        # Prefer an explicit score-ish key; otherwise the sole numeric value.
+        for key in ("score", "experience_score", "overallScore", "value"):
+            if isinstance(average.get(key), (int, float)):
+                if overall is None:
+                    overall = average[key]
+                break
+        numeric = {k: v for k, v in average.items()
+                   if isinstance(v, (int, float))}
+        if overall is None and len(numeric) == 1:
+            overall = list(numeric.values())[0]
+        if not comps and numeric:
+            comps = numeric
+
     worst = data.get("worst_component")
     if not worst and isinstance(comps, dict) and comps:
-        # lowest-scoring component is the likely culprit
-        worst = min(comps, key=lambda k: comps[k])
-    return {"overall": overall, "components": comps, "worst_component": worst}
+        numeric_comps = {k: v for k, v in comps.items()
+                         if isinstance(v, (int, float))}
+        if numeric_comps:
+            # lowest-scoring component is the likely culprit
+            worst = min(numeric_comps, key=lambda k: numeric_comps[k])
+
+    row_count = data.get("rowCount", data.get("row_count"))
+    return {"overall": overall, "components": comps, "worst_component": worst,
+            "row_count": row_count if isinstance(row_count, int) else None}
 
 
 def _rate(score):

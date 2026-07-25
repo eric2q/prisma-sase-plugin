@@ -27,6 +27,31 @@ and what the read-only design excludes (all `/sse/config` + push/jobs) — is
 catalogued in
 [`skills/prisma-sase-ops/references/api-catalog.md`](skills/prisma-sase-ops/references/api-catalog.md).
 
+## If the tools don't show up: two places to look
+
+Reach for these **before** anything else — they were built for exactly the
+moment when the plugin appears installed but no Prisma SASE tools exist:
+
+1. **Ask Claude to run `prisma_sase_setup_required`.** When the real server
+   can't start (missing dependencies, Python too old), a dependency-free
+   fallback server takes its place and exposes this single tool; calling it
+   returns the diagnosis and the copy-paste fix. Its description alone
+   already names the problem.
+2. **Read the launch breadcrumb: `~/.prisma-sase-launch.log`.** Every launch
+   rewrites it, so it always describes the latest attempt:
+
+   | Line | Meaning |
+   |---|---|
+   | *file missing entirely* | the host never ran the launcher — the MCP server was not even attempted |
+   | `run.sh invoked ...` | launch started |
+   | `WARNING: ... not executable (broken venv?)` | the venv's interpreter is dangling (typically after a Python upgrade) — recreate it |
+   | `note: ... not present` | no venv, so a system interpreter was used — it likely has no packages |
+   | `launching with <path>` | the interpreter that was chosen |
+   | `FATAL: ...` | the exact cause of death (no Python ≥ 3.10, version floor, missing packages) |
+
+After fixing anything, **restart the Claude app completely** (macOS: ⌘Q —
+closing the window does not relaunch plugin servers).
+
 ## Requirements
 
 - **Python ≥ 3.10** (fastmcp's floor). ⚠️ On macOS the built-in `python3` is
@@ -188,6 +213,9 @@ data through the real code path — good for a first look or a customer demo.
 | Symptom | Cause | Fix |
 |---|---|---|
 | Plugin/skill load but the MCP tools never appear | Server failed to start — usually Python < 3.10 (macOS system `python3` = 3.9) | `bash install.sh`, then reinstall the plugin. `run.sh` / `server.py` now print the exact version error |
+| **The plugin's tools don't exist in the conversation at all** | The MCP server failed to start. Since 0.8.1 a fallback server takes over and exposes `prisma_sase_setup_required` — ask Claude to call it and it prints the diagnosis + fix | If not even that appears, read `~/.prisma-sase-launch.log` (below) |
+| Tools still missing right after installing the dependencies | The plugin server is only relaunched on a **full app restart** | macOS: **⌘Q** (closing the window is not enough), then reopen. Windows: quit from the tray/taskbar, not just the window |
+| `~/.prisma-sase-venv` exists but the server uses another interpreter | The venv's symlinked interpreter is dangling — common after a Python upgrade moves the version it was built against (the launch log now says so explicitly) | Recreate it: `rm -rf ~/.prisma-sase-venv && bash install.sh` |
 | `pip install fastmcp` → "No matching distribution found" | Misleading pip message — your Python is too old, the package exists | `python3 --version`; use a ≥ 3.10 interpreter (`install.sh` does this) |
 | "Missing required context / Missing PRISMA_CLIENT_ID…" although `launchctl getenv` shows values | macOS GUI apps launched from Finder/Dock are not guaranteed to inherit `launchctl setenv` (field-verified: on some machines the vars never arrive) | Use `~/.prisma-sase.env` (the primary path) — `install.sh` creates the template. `--selfcheck` shows which source supplied each value |
 | Insights tool returns HTTP 400 | Resource/view name or filter-payload shape doesn't match this tenant (the client already auto-tries time-filter and empty-filter variants) | Run `discover_insights` (or `--discover`), adopt the `suggested_insights_map` into `~/.prisma-sase.env` |

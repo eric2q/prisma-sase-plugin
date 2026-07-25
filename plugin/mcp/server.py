@@ -75,6 +75,20 @@ if sys.version_info < (3, 10):
         "launcher will use it).\n"
         % (sys.version_info[0], sys.version_info[1], sys.version_info[2],
            sys.executable))
+    # Same reasoning as the dependency check below (0.8.0 field report P1):
+    # serve the stdlib-only setup server so the assistant can see and relay
+    # the problem instead of the tools silently disappearing. setup_server is
+    # deliberately 3.6-compatible so it runs on this too-old interpreter.
+    if len(sys.argv) == 1:
+        import os as _os
+        sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+        try:
+            import setup_server
+            _breadcrumb("starting dependency-free setup server "
+                        "(Python too old)")
+            sys.exit(setup_server.main())
+        except Exception as _exc:      # never let the fallback mask the error
+            sys.stderr.write("(setup-status server unavailable: %s)\n" % _exc)
     sys.exit(1)
 
 import importlib.util
@@ -171,6 +185,17 @@ if _missing_pkgs:
         "       PRISMA_PYTHON at a Python >= 3.10 that has the deps)\n"
         % (", ".join(_missing_pkgs), sys.executable,
            "\n".join(_venv_fix_lines(_req))))
+    # 0.8.0 field report P1: exiting here made the whole toolset vanish from
+    # the conversation with no error the user could see. Instead, serve the
+    # dependency-free setup server so the failure and its fix arrive as a
+    # tool the assistant can read and relay. CLI invocations (flags present)
+    # keep the old exit-with-error behaviour.
+    if len(sys.argv) == 1:
+        _breadcrumb("starting dependency-free setup server (degraded mode)")
+        sys.stderr.write("Starting the setup-status server instead so the "
+                         "problem is visible in the conversation.\n")
+        import setup_server
+        sys.exit(setup_server.main())
     sys.exit(1)
 
 from typing import Optional

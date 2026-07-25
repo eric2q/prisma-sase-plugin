@@ -31,6 +31,20 @@ if [ -n "${PRISMA_PYTHON:-}" ]; then
 fi
 candidates="$candidates $HOME/.prisma-sase-venv/bin/python python3.13 python3.12 python3.11 python3.10 python3"
 
+# A stale ~/.prisma-sase-venv is silently skipped below (a Python upgrade can
+# leave its symlinked interpreter dangling). Say so in the log -- the 0.8.0
+# field report spent three rounds on exactly this ambiguity.
+# NOTE: -e follows symlinks, so a DANGLING symlink (the usual broken-venv
+# shape after a Python upgrade) is invisible to -e alone -- test -L too.
+VENV_PY="$HOME/.prisma-sase-venv/bin/python"
+if [ -L "$VENV_PY" ] && [ ! -e "$VENV_PY" ]; then
+  _crumb "WARNING: $VENV_PY is a DANGLING symlink -- the Python it was built against moved or was removed (typical after a Python upgrade). Recreate the venv: rm -rf ~/.prisma-sase-venv && bash install.sh"
+elif { [ -e "$VENV_PY" ] || [ -L "$VENV_PY" ]; } && [ ! -x "$VENV_PY" ]; then
+  _crumb "WARNING: $VENV_PY exists but is not executable -- broken venv; recreate it (rm -rf ~/.prisma-sase-venv && bash install.sh)"
+elif [ ! -e "$VENV_PY" ]; then
+  _crumb "note: $VENV_PY not present -- will try system interpreters (which usually lack the packages)"
+fi
+
 for py in $candidates; do
   if command -v "$py" >/dev/null 2>&1; then
     if "$py" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
@@ -47,4 +61,16 @@ echo "   - run the plugin's install.sh to create ~/.prisma-sase-venv, or" >&2
 echo "   - install Python (e.g. 'brew install python@3.12'), or" >&2
 echo "   - set PRISMA_PYTHON to an absolute path of a Python >= 3.10." >&2
 echo "  Diagnostic breadcrumb written to $LOG" >&2
+
+# Last resort (0.8.0 field report P1): rather than dying invisibly, serve the
+# stdlib-only setup server with ANY python we can find, so the assistant is
+# told what is wrong instead of the tools just not existing.
+if [ $# -eq 0 ]; then
+  for py in python3 python; do
+    if command -v "$py" >/dev/null 2>&1; then
+      _crumb "starting dependency-free setup server with $(command -v "$py")"
+      exec "$py" "$DIR/setup_server.py"
+    fi
+  done
+fi
 exit 1

@@ -191,6 +191,22 @@ afterwards (see [`plugin/README.md`](plugin/README.md), "Cloud sessions").
 > enter the local env file. If the secret ever leaks, rotate it in SCM
 > immediately and update the env file.
 
+## If the SASE tools don't appear
+
+Two things to try, in order — both designed for the case where the plugin
+looks installed but no Prisma SASE tools exist in the conversation:
+
+1. **Ask Claude to run `prisma_sase_setup_required`.** When the real server
+   can't start, a dependency-free fallback takes its place and this tool
+   returns the diagnosis plus copy-paste fix commands.
+2. **Read `~/.prisma-sase-launch.log`** — the launch breadcrumb naming the
+   interpreter that was chosen and the exact cause of failure (no file at all
+   = the host never launched the server). Line-by-line key:
+   [`plugin/README.md`](plugin/README.md#if-the-tools-dont-show-up-two-places-to-look).
+
+After any fix, **restart the Claude app completely** (macOS: ⌘Q — closing the
+window doesn't relaunch plugin servers).
+
 ## Update
 
 Maintainer pushes to this repo → users pick it up with

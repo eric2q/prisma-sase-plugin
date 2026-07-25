@@ -26,6 +26,18 @@ echo   Fix one of: 1>&2
 echo    - run the plugin's install.bat (creates %%USERPROFILE%%\.prisma-sase-venv), or 1>&2
 echo    - install Python from https://www.python.org/downloads/ (tick "Add python.exe to PATH"), or 1>&2
 echo    - set PRISMA_PYTHON to the full path of a python.exe ^>= 3.10. 1>&2
+
+rem Last resort (0.8.0 field report P1): serve the stdlib-only setup server
+rem with any python available, so the failure reaches the conversation
+rem instead of the tools silently not existing.
+if "%ARGS%"=="" (
+  for %%p in (python py) do (
+    %%p -c "import sys" >nul 2>&1 && (
+      %%p "%DIR%setup_server.py"
+      exit /b %errorlevel%
+    )
+  )
+)
 exit /b 1
 
 :try

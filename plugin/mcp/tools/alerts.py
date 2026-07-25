@@ -164,11 +164,24 @@ def query_alerts(severity=None, state=None, hours=24, limit=config.DEFAULT_LIMIT
                  "setting."),
     }
     if _uncategorized > 0:
+        pct = (100.0 * _covered / summary["total"]) if summary["total"] else 0.0
+        out["category_coverage_pct"] = round(pct, 1)
         out["category_note"] = (
-            "The MU/RN/SC breakdown covers %d of %d alerts; the remaining %d "
-            "are not categorized by this view -- do not treat the categorized "
-            "sum as the total, and do not guess how the remainder distributes."
-            % (_covered, summary["total"], _uncategorized))
+            "The MU/RN/SC breakdown covers %d of %d alerts (%.0f%%); the "
+            "remaining %d are not categorized by this view -- do not treat "
+            "the categorized sum as the total, and do not guess how the "
+            "remainder distributes."
+            % (_covered, summary["total"], pct, _uncategorized))
+        if pct < 50:
+            # 0.8.0 field report P3: a live tenant showed 19% coverage (137 of
+            # 707). At that ratio the aggregate view is a poor alert overview
+            # even once per-alert severity exists -- say so rather than
+            # presenting it as a complete picture.
+            out["category_note"] += (
+                " Coverage is low, so this view is a weak basis for an alert "
+                "overview: report the total and the uncategorized remainder "
+                "plainly, and note that a per-alert view is needed for a real "
+                "breakdown.")
     if len(agg_rows) > 1:
         out["sub_tenant_count"] = len(agg_rows)
         out["by_sub_tenant"] = [

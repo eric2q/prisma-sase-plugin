@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.8.1 — 2026-07-25
+
+Driven by the 0.8.0 field report (macOS Cowork): a failed startup used to
+make the entire toolset vanish with no error anywhere the user could see.
+
+- **NEW (P1, the big one):** `mcp/setup_server.py` — a **dependency-free
+  fallback MCP server**. When the real server can't start (missing
+  fastmcp/httpx, or Python below the 3.10 floor), the plugin now serves this
+  instead of exiting: it speaks stdio MCP with the standard library alone and
+  exposes one tool, `prisma_sase_setup_required`, whose *description already
+  names the problem* and whose output is the full diagnosis plus copy-paste
+  fix commands. The failure now arrives in the conversation instead of
+  silently removing every tool. `run.sh`/`run.cmd` also fall back to it with
+  any available interpreter when no Python ≥ 3.10 exists.
+- **NEW:** the launcher now logs *why* a preferred interpreter was skipped —
+  `~/.prisma-sase-venv` missing, or present but **not executable** (a
+  dangling venv, typically after a Python upgrade relocates the interpreter
+  it was built against). That ambiguity cost the reporter three rounds.
+  For the record: the interpreter search order has not changed since v0.6.1
+  — 0.8.0 did not break dependencies; the venv was absent or stale.
+- **NEW (P2):** ADEM score extraction handles the real response shape
+  (`startTime/endTime/endpointType/tenantServiceGroup/rowCount/average`):
+  `average` is read as the score (scalar or per-metric dict → components),
+  and `rowCount` is surfaced. `rowCount: 0` is now reported as
+  `no_data_reason: "empty_window"` with an explicit "this is NOT a mapping
+  problem" note; a non-zero rowCount without a score is flagged
+  `shape_mismatch` and reports `average`'s keys for correction.
+- **CHG (P3):** aggregate alert output adds `category_coverage_pct`, and
+  below 50% coverage the note says the view is a weak basis for an alert
+  overview (live: 137 of 707 = 19%).
+- **DOC:** the launch breadcrumb is promoted out of the Skill into a
+  prominent **"If the tools don't show up"** section in plugin/README (with
+  a line-by-line key) and both root READMEs — the people who need it are
+  precisely those who can't reach the Skill. Troubleshooting gains the
+  full-restart requirement (macOS ⌘Q; closing the window is not enough) and
+  the dangling-venv row. SKILL tells Claude to look for
+  `prisma_sase_setup_required` first and relay it verbatim.
+
 ## 0.8.0 — 2026-07-24
 
 Credentials leave plaintext: enable-dialog (userConfig) + secret-command
