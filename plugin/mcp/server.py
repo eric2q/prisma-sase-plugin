@@ -127,6 +127,20 @@ def _selfcheck():
     print("  region:       %s" % (d["region"] or "(not set)"))
     print("  credentials:  %s" % ("all 4 required vars set" if not d["missing"]
                                   else "MISSING: " + ", ".join(d["missing"])))
+    # userConfig values reach the MCP server process only -- a hand-run
+    # selfcheck cannot see them. Say so loudly, or the "MISSING" line above
+    # gets read as "the user never configured the plugin" (it did, once).
+    _pcfg = config.plugin_config_snapshot()
+    if _pcfg:
+        print("  plugin config: %s has %s set via the enable dialog"
+              % (_pcfg["plugin_id"], ", ".join(_pcfg["keys"]) or "no options"))
+        if d["missing"]:
+            print("                 ^ NOTE: those values are injected into the "
+                  "MCP SERVER process only, so they are invisible here. A "
+                  "'MISSING' line above is EXPECTED when running selfcheck by "
+                  "hand and does NOT mean the plugin is unconfigured. The "
+                  "Client Secret lives in OS secure storage and never appears "
+                  "in %s." % _pcfg["settings_path"])
     _src = {"environment": "environment (host/userConfig dialog or shell)",
             "env_file": "env file (PLAINTEXT -- consider the userConfig "
                         "dialog or PRISMA_SECRET_CMD)",
@@ -156,6 +170,14 @@ def _selfcheck():
         return 1
     if d["mock_mode"]:
         print("\nRESULT: READY (mock mode -- no live API calls)")
+        return 0
+    if d["missing"] and _pcfg and not d["unexpanded_placeholders"]:
+        print("\nRESULT: DEPENDENCIES READY; credentials not visible from this "
+              "shell.\n  The plugin IS configured via the enable dialog (%s). "
+              "Those values only\n  reach the MCP server process, so this "
+              "hand-run check cannot confirm them.\n  Verify by asking Claude "
+              "to run get_sase_status after a full app restart."
+              % ", ".join(_pcfg["keys"]))
         return 0
     if d["missing"] or d["unexpanded_placeholders"]:
         print("\nRESULT: NOT READY -- fix the items above "

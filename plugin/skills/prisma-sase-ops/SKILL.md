@@ -132,11 +132,17 @@ fastmcp/httpx, and no `~/.prisma-sase.env`. If `get_sase_status` /
 do not give up.
 
 **First, look for `prisma_sase_setup_required`.** If that tool is present,
-the server failed to start and a dependency-free fallback took over: call
-it, then relay its diagnosis and fix commands to the user verbatim (they are
-copy-paste ready). Remind them to restart the Claude app **completely**
-afterwards — macOS ⌘Q; closing the window does not relaunch plugin servers.
-Do not attempt tenant answers while in this state.
+the server failed to start and a dependency-free fallback took over: call it
+for the diagnosis, then **offer to run `prisma_sase_install_dependencies`** —
+it creates `~/.prisma-sase-venv` and installs the requirements in about a
+minute, no shell work needed from the user. Afterwards they must reload
+completely: **Claude Desktop → ⌘Q and reopen** (closing the window does not
+relaunch plugin servers); **Claude Code CLI → `/reload-plugins` or restart
+`claude`**. Do not attempt tenant answers while in this state.
+
+**Freshly installed plugin?** In the CLI, a just-installed plugin's MCP
+server is not running yet — `/plugin install` says so. Run
+`/reload-plugins` before concluding anything is broken.
 
 If no tools at all are present, bootstrap in ~2 minutes:
 
@@ -145,6 +151,17 @@ If no tools at all are present, bootstrap in ~2 minutes:
    cat ~/.prisma-sase-launch.log           # why the server died (stderr is invisible here)
    bash <plugin>/mcp/run.sh --selfcheck    # or: python3 <plugin>/mcp/server.py --selfcheck
    ```
+   ⚠️ **Never conclude "the user has no credentials" from a hand-run
+   selfcheck.** Values supplied through the plugin's enable dialog
+   (userConfig) are injected into the **MCP server process only** — they are
+   invisible to any command you run in a shell, so `credentials: MISSING` is
+   *expected* there and says nothing about the user's setup. Selfcheck (≥
+   0.8.2) reads the host settings and prints this caveat itself; if you see
+   an older build, check
+   `~/.claude/settings.json` → `pluginConfigs[...].options` for
+   `client_id`/`tsg_id`/`region` (the secret is in OS secure storage and
+   correctly absent). **Only** treat credentials as missing when neither the
+   dialog nor an env file has them.
    How to read the breadcrumb:
    - **File does not exist** → the host never even ran the launcher (the
      MCP server was not attempted) — bootstrapping below is the only path.

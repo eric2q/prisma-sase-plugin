@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.8.2 — 2026-07-25
+
+Driven by a live Claude Code CLI walkthrough of a fresh install. The plugin's
+own guidance produced a WRONG diagnosis, and recovery still required manual
+shell work — both fixed.
+
+- **FIX (wrong diagnosis, high):** a hand-run `--selfcheck` cannot see values
+  supplied through the plugin enable dialog — userConfig is injected into the
+  MCP **server process** only — so it reported `credentials: MISSING` for a
+  correctly configured plugin, and the assistant told the user to create an
+  env file they did not need. Selfcheck now reads the host's
+  `pluginConfigs` from `~/.claude/settings.json`, lists which options are
+  set, states plainly that their invisibility here is expected, and returns
+  a distinct **"DEPENDENCIES READY; credentials not visible from this
+  shell"** result instead of NOT READY. SKILL carries the same warning:
+  never conclude "no credentials" from a shell selfcheck.
+- **NEW (self-repair):** the fallback server gained
+  `prisma_sase_install_dependencies` — it creates `~/.prisma-sase-venv`
+  (picking a ≥3.10 base interpreter if the current one is too old) and
+  installs the requirements, reporting each step and the exact reload
+  instructions. Recovery from "tools missing" is now a conversation
+  ("shall I fix it?" → done) instead of copy-pasting shell commands.
+- **FIX (P2 follow-up):** the live ADEM payload puts **per-segment** averages
+  (`wlan` / `lan` / `vpnUnderlay` …) under `average` with no aggregate score.
+  That is now reported as `no_data_reason: "no_aggregate_score"` with the
+  segments exposed as components and the weakest named — instead of being
+  dismissed as "no data". The note explicitly forbids inventing an overall
+  score by averaging them.
+- **DOC:** SKILL covers the CLI reload path (`/reload-plugins`) alongside
+  Desktop's ⌘Q, and notes that a just-installed plugin's server is not
+  running until reloaded.
+
 ## 0.8.1 — 2026-07-25
 
 Driven by the 0.8.0 field report (macOS Cowork): a failed startup used to

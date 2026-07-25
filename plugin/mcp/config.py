@@ -37,7 +37,7 @@ import sys
 # in-conversation. MUST be bumped in lockstep with .claude-plugin/
 # marketplace.json (all three entries); tools/build-standalone.py fails the
 # build on a mismatch, and PUBLISHING.md documents the step.
-PLUGIN_VERSION = "0.8.1"
+PLUGIN_VERSION = "0.8.2"
 
 # --- Fixed, verified facts (design doc sec.3 -- do NOT change) ---------------
 AUTH_URL = "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
@@ -305,6 +305,43 @@ def placeholder_hint():
         "from your environment), or put the values in ~/.prisma-sase.env "
         "(KEY=VALUE lines, chmod 600)." % ", ".join(PLACEHOLDER_VARS)
     )
+
+
+def plugin_config_snapshot():
+    """What the host's plugin enable dialog (userConfig) has stored, if any.
+
+    CRITICAL for diagnosis (0.8.1 CLI field test): userConfig values are
+    injected ONLY into the MCP server process the host launches. A selfcheck
+    (or any command) run from an ordinary shell cannot see them, so it reports
+    "credentials MISSING" even when the plugin is configured correctly -- which
+    misled a live troubleshooting session into creating an env file it did not
+    need. Reading the host's settings here lets the report say so.
+
+    Non-sensitive options live in ~/.claude/settings.json under
+    ``pluginConfigs["<plugin>@<marketplace>"].options``; the secret is not
+    there by design (it is in the OS secure storage). Only KEY NAMES are
+    returned for anything secret-ish -- never values.
+    """
+    path = os.path.expanduser("~/.claude/settings.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:
+        return None
+    configs = data.get("pluginConfigs")
+    if not isinstance(configs, dict):
+        return None
+    for plugin_id, entry in configs.items():
+        if "prisma-sase" not in plugin_id:
+            continue
+        options = (entry or {}).get("options")
+        if not isinstance(options, dict):
+            continue
+        return {"plugin_id": plugin_id,
+                "keys": sorted(k for k, v in options.items()
+                               if v not in (None, "")),
+                "settings_path": path}
+    return None
 
 
 def env_diagnostics():

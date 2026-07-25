@@ -91,6 +91,21 @@ def get_user_experience(user=None, app=None, hours=24, start=None, end=None,
             return out
         if score["row_count"]:
             out["no_data_reason"] = "shape_mismatch"
+        # Per-segment averages without an aggregate: report what IS there
+        # rather than calling the whole thing "no data" (0.8.1 CLI test saw
+        # wlan / lan / vpnUnderlay populated while overall stayed null).
+        if isinstance(score["components"], dict) and score["components"]:
+            out["no_data_reason"] = "no_aggregate_score"
+            out["note"] = (
+                "This response carries NO aggregate experience score, but it "
+                "does carry per-segment averages (%s) -- report those and the "
+                "weakest one (%s) instead of saying there is no data, and say "
+                "plainly that an overall score is unavailable from this "
+                "endpoint shape. Do not average them yourself into a fake "
+                "overall score."
+                % (", ".join(sorted(score["components"])),
+                   score["worst_component"]))
+            return out
         elif isinstance(data, list):
             first = data[0] if data and isinstance(data[0], dict) else None
             out["no_data_debug"] = {
@@ -140,6 +155,10 @@ def _extract_score(data):
         if overall is None and len(numeric) == 1:
             overall = list(numeric.values())[0]
         if not comps and numeric:
+            # Live shape (0.8.1 CLI test): average holds PER-SEGMENT scores
+            # (wlan / lan / vpnUnderlay / ...). Those are genuine, useful
+            # measurements -- expose them as components even though the
+            # response carries no aggregate score.
             comps = numeric
 
     worst = data.get("worst_component")

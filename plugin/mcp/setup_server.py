@@ -121,22 +121,119 @@ def _summary():
 
 
 TOOL_NAME = "prisma_sase_setup_required"
+REPAIR_TOOL_NAME = "prisma_sase_install_dependencies"
 
 
-def _tool_definition():
-    return {
-        "name": TOOL_NAME,
-        "description": (
-            "SETUP INCOMPLETE -- the Prisma SASE tools are unavailable in this "
-            "session because %s. The normal tools (get_sase_status, "
-            "query_alerts, get_remote_networks, get_connected_users, "
-            "get_user_experience, discover_insights) are NOT loaded, so no "
-            "tenant data can be queried. Call this tool to get the exact "
-            "diagnosis and the copy-paste commands that fix it, and show them "
-            "to the user -- do not attempt to answer SASE questions from "
-            "memory or guesswork." % _summary()),
-        "inputSchema": {"type": "object", "properties": {}, "required": []},
-    }
+def _tool_definitions():
+    return [
+        {
+            "name": TOOL_NAME,
+            "description": (
+                "SETUP INCOMPLETE -- the Prisma SASE tools are unavailable in "
+                "this session because %s. The normal tools (get_sase_status, "
+                "query_alerts, get_remote_networks, get_connected_users, "
+                "get_user_experience, discover_insights) are NOT loaded, so no "
+                "tenant data can be queried. Call this tool for the exact "
+                "diagnosis, then offer to run %s to fix it automatically. Do "
+                "not answer SASE questions from memory or guesswork."
+                % (_summary(), REPAIR_TOOL_NAME)),
+            "inputSchema": {"type": "object", "properties": {}, "required": []},
+        },
+        {
+            "name": REPAIR_TOOL_NAME,
+            "description": (
+                "Fix the setup automatically: (re)create the plugin's "
+                "virtualenv at ~/.prisma-sase-venv and install fastmcp + httpx "
+                "into it -- the location the launcher already prefers. Takes "
+                "roughly a minute and needs network access to PyPI. Ask the "
+                "user before running it. Afterwards they MUST fully restart "
+                "the Claude app (macOS: Cmd-Q; Claude Code CLI: "
+                "/reload-plugins or restart) for the real server to load."),
+            "inputSchema": {"type": "object", "properties": {}, "required": []},
+        },
+    ]
+
+
+def repair():
+    """Create ~/.prisma-sase-venv and install the requirements into it."""
+    import subprocess
+
+    venv_dir = os.path.expanduser("~/.prisma-sase-venv")
+    venv_py, _, _ = _venv_paths()
+    steps = []
+
+    base_python = sys.executable
+    if sys.version_info < MIN_PYTHON:
+        # This interpreter can't host the server; find one that can.
+        found = None
+        for cand in ("python3.13", "python3.12", "python3.11", "python3.10"):
+            try:
+                probe = subprocess.run(
+                    [cand, "-c", "import sys; print(sys.executable)"],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                if probe.returncode == 0:
+                    found = probe.stdout.decode("utf-8", "replace").strip()
+                    break
+            except Exception:
+                continue
+        if not found:
+            return ("Cannot repair automatically: this interpreter is Python "
+                    "%d.%d (below 3.10) and no newer Python was found on PATH."
+                    "\nInstall one first (macOS: brew install python@3.12, or "
+                    "python.org), then run this tool again.\n\n%s"
+                    % (sys.version_info[0], sys.version_info[1], diagnose()))
+        base_python = found
+    steps.append("using base interpreter: %s" % base_python)
+
+    def _run(cmd, label):
+        try:
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT)
+        except Exception as exc:
+            return False, "%s FAILED to start: %s" % (label, exc)
+        out = proc.stdout.decode("utf-8", "replace").strip()
+        tail = "\n".join(out.splitlines()[-8:])
+        if proc.returncode != 0:
+            return False, "%s FAILED (exit %d):\n%s" % (label, proc.returncode,
+                                                        tail)
+        return True, "%s ok" % label
+
+    if not os.path.exists(venv_py):
+        ok, msg = _run([base_python, "-m", "venv", venv_dir],
+                       "create venv at %s" % venv_dir)
+        steps.append(msg)
+        if not ok:
+            steps.append("Hint: on Debian/Ubuntu install python3-venv first "
+                         "(sudo apt install python3-venv).")
+            return "Repair did not complete.\n\n" + "\n".join(steps)
+    else:
+        steps.append("venv already exists at %s -- reusing" % venv_dir)
+
+    ok, msg = _run([venv_py, "-m", "pip", "install", "--quiet", "-r",
+                    REQUIREMENTS], "install fastmcp + httpx")
+    steps.append(msg)
+    if not ok:
+        steps.append("Common cause: no network access to pypi.org (offline, "
+                     "firewall, or a corporate proxy -- try setting "
+                     "HTTPS_PROXY). Re-running is safe.")
+        return "Repair did not complete.\n\n" + "\n".join(steps)
+
+    ok, msg = _run([venv_py, "-c",
+                    "import fastmcp, httpx; print(fastmcp.__version__)"],
+                   "verify imports")
+    steps.append(msg)
+    if not ok:
+        return "Repair did not complete.\n\n" + "\n".join(steps)
+
+    steps.append("")
+    steps.append("DONE. The launcher will pick up %s on the next start."
+                 % venv_py)
+    steps.append("The user must now RESTART COMPLETELY for the real server to "
+                 "load:")
+    steps.append("  - Claude Desktop: Cmd-Q and reopen (closing the window is "
+                 "NOT enough)")
+    steps.append("  - Claude Code CLI: /reload-plugins, or restart claude")
+    return "\n".join(steps)
 
 
 def _send(message):
@@ -178,7 +275,7 @@ def serve():
                                "version": "0.0.0-setup"},
             })
         elif method == "tools/list":
-            _result(req_id, {"tools": [_tool_definition()]})
+            _result(req_id, {"tools": _tool_definitions()})
         elif method == "tools/call":
             name = (msg.get("params") or {}).get("name")
             if name == TOOL_NAME:
@@ -186,12 +283,20 @@ def serve():
                     "content": [{"type": "text", "text": diagnose()}],
                     "isError": False,
                 })
+            elif name == REPAIR_TOOL_NAME:
+                try:
+                    text = repair()
+                except Exception as exc:      # never crash the fallback
+                    text = ("Repair raised an unexpected error: %s\n\n%s"
+                            % (exc, diagnose()))
+                _result(req_id, {"content": [{"type": "text", "text": text}],
+                                 "isError": False})
             else:
                 _result(req_id, {
                     "content": [{"type": "text", "text":
-                                 "Only '%s' is available: the Prisma SASE "
-                                 "server did not start.\n\n%s"
-                                 % (TOOL_NAME, diagnose())}],
+                                 "Only '%s' and '%s' are available: the Prisma "
+                                 "SASE server did not start.\n\n%s"
+                                 % (TOOL_NAME, REPAIR_TOOL_NAME, diagnose())}],
                     "isError": True,
                 })
         elif method == "ping":
