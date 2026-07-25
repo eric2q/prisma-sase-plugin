@@ -91,11 +91,19 @@ def get_remote_networks(state=None, hours=1, limit=config.DEFAULT_LIMIT,
     records = records_of(raw)
     counts = {}
     down_names = []
+    monitoring_down = []
     for r in records:
         s = _state_of(r)
         counts[s] = counts.get(s, 0) + 1
         if s == "down":
             down_names.append(r.get("tunnel_name") or r.get("site_name"))
+        # A tunnel that is Up while its monitoring is Down still carries
+        # traffic, but its health is unobserved -- a live tenant had two in
+        # that state and nothing surfaced it. Track it as its own signal.
+        mon = r.get("tunnel_monitoring_state_name") or r.get(
+            "tunnel_monitoring_state")
+        if s == "up" and str(mon).strip().lower() in ("down", "disabled", "0"):
+            monitoring_down.append(r.get("tunnel_name") or r.get("site_name"))
 
     wanted = records
     norm_state = (state or "").strip().lower()
@@ -122,9 +130,17 @@ def get_remote_networks(state=None, hours=1, limit=config.DEFAULT_LIMIT,
         "returned": len(rows),
         "tunnels": rows,
     }
+    if monitoring_down:
+        out["monitoring_down"] = len(monitoring_down)
+        out["monitoring_down_names"] = monitoring_down[:config.MAX_LIMIT]
     other = {k: v for k, v in counts.items() if k not in ("up", "down")}
     if other:
         out["other_states"] = other
+        # e.g. a tunnel stuck in 'init' has never come up -- neither up nor
+        # down, and previously invisible to the status headline.
+        out["not_up_names"] = [
+            (r.get("tunnel_name") or r.get("site_name")) for r in records
+            if _state_of(r) not in ("up", "down")][:config.MAX_LIMIT]
     if norm_state:
         out["state_filter"] = norm_state
     if total_wanted > len(rows):

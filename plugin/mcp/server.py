@@ -157,6 +157,15 @@ def _selfcheck():
     elif d["secret_cmd_set"]:
         print("  secret from:  PRISMA_SECRET_CMD is set but returned nothing "
               "-- run it by hand to debug")
+    for _finding in config.credential_file_audit():
+        if _finding["issue"] == "loose_permissions":
+            print("  SECURITY:     %s is mode %o -- readable beyond you. "
+                  "Fix: chmod 600 %s"
+                  % (_finding["path"], _finding["mode"], _finding["path"]))
+        else:
+            print("  SECURITY:     %s is NOT read by this plugin but looks "
+                  "like a forgotten credential copy -- delete it (and rotate "
+                  "the secret if it was exposed)." % _finding["path"])
     if d["unexpanded_placeholders"]:
         print("  placeholders: WARNING -- literal ${...} received for: %s"
               % ", ".join(d["unexpanded_placeholders"]))

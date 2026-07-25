@@ -37,7 +37,7 @@ import sys
 # in-conversation. MUST be bumped in lockstep with .claude-plugin/
 # marketplace.json (all three entries); tools/build-standalone.py fails the
 # build on a mismatch, and PUBLISHING.md documents the step.
-PLUGIN_VERSION = "0.8.3"
+PLUGIN_VERSION = "0.8.4"
 
 # --- Fixed, verified facts (design doc sec.3 -- do NOT change) ---------------
 AUTH_URL = "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
@@ -358,6 +358,52 @@ def stale_version_check():
                 "install_root": parent}
     except Exception:
         return None
+
+
+def credential_file_audit():
+    """Flag credential files that are unreadable-by-design violations.
+
+    A live removal session turned up a stray ``~/.prisma-sase2.env`` holding a
+    plaintext client secret at mode 644 (group/world readable). Nothing ever
+    read it -- the loader only honours ~/.prisma-sase.env and $PRISMA_ENV_FILE
+    -- so it sat there unnoticed until someone went looking. Two findings are
+    worth surfacing at every selfcheck:
+
+    * ``loose_permissions`` -- any of our env files readable beyond the owner.
+    * ``stray`` -- ~/.prisma-sase*.env files that are NOT the ones we load, so
+      the user knows a forgotten copy of their credentials exists.
+
+    Returns [] on platforms/paths where nothing can be determined. Never reads
+    file CONTENTS -- only paths and mode bits.
+    """
+    findings = []
+    active = set()
+    explicit = os.environ.get("PRISMA_ENV_FILE")
+    if explicit:
+        active.add(os.path.abspath(os.path.expanduser(explicit)))
+    active.add(os.path.abspath(os.path.expanduser("~/.prisma-sase.env")))
+
+    candidates = set(active)
+    try:
+        import glob
+        candidates.update(os.path.abspath(p) for p in
+                          glob.glob(os.path.expanduser("~/.prisma-sase*.env")))
+    except Exception:
+        pass
+
+    for path in sorted(candidates):
+        try:
+            if not os.path.isfile(path):
+                continue
+            mode = os.stat(path).st_mode & 0o777
+        except OSError:
+            continue
+        if path not in active:
+            findings.append({"path": path, "issue": "stray", "mode": mode})
+        if os.name != "nt" and mode & 0o077:
+            findings.append({"path": path, "issue": "loose_permissions",
+                             "mode": mode})
+    return findings
 
 
 def plugin_config_snapshot():

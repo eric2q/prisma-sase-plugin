@@ -309,6 +309,40 @@ If the plugin's tools don't appear in a cloud session at all, see the
 Skill's **bootstrap runbook** (SKILL.md) and the launch breadcrumb at
 `~/.prisma-sase-launch.log`.
 
+## Uninstalling
+
+`claude plugin uninstall` (or the Desktop Plugins UI) removes the plugin tree,
+its registry entries, `enabledPlugins`, and the `pluginConfigs` values —
+**including the Client Secret held in OS secure storage**. It does *not* know
+about the things `install.sh` created in your home directory:
+
+| Left behind by the host uninstaller | Size |
+|---|---|
+| `~/.prisma-sase-venv` | ~100 MB |
+| `~/.prisma-sase.env` (and any hand-made copies) | credentials |
+| `~/.prisma-sase-launch.log` | tiny |
+
+Clean those up with the bundled script — it lists everything first and asks
+before deleting:
+
+```bash
+bash uninstall.sh              # show the plan, then confirm
+bash uninstall.sh --dry-run    # just show
+bash uninstall.sh --yes --keep-credentials
+```
+
+Then remove the plugin and marketplace themselves:
+
+```bash
+claude plugin uninstall prisma-sase-mac@prisma-sase   # match your OS variant
+claude plugin marketplace remove prisma-sase
+```
+
+If a credential file ever sat on disk in plaintext (especially with
+permissions looser than 600), **rotate the secret in SCM** — deleting the file
+does not undo the exposure. `--selfcheck` warns about both loose permissions
+and stray `~/.prisma-sase*.env` copies the plugin never reads.
+
 ## All environment variables
 
 | Variable | Required | Purpose |
