@@ -128,8 +128,8 @@ identifiers masked; red badges ①–⑤ number the flow):
    <img src="docs/images/scm-4-assign-roles.png" alt="Assign Roles: All Apps & Services + View Only Administrator → Submit" width="560">
 
 Never paste the Client Secret into a chat — the tools take no credential
-parameters by design; if a secret leaks, rotate it in SCM and update the env
-file.
+parameters by design; if a secret leaks, rotate it in SCM and update wherever
+it is stored (enable dialog, env file, or secret store).
 
 **Step 4 — provide the four variables.** Three supported sources, in the
 order the server resolves them:
@@ -141,7 +141,10 @@ order the server resolves them:
    too old to expand the dialog values, the server detects the literal
    `${user_config.*}` placeholders, treats them as unset, and falls through
    to the env file — `--selfcheck` names exactly what happened.
-2. **The env file** (`install.sh` already created a template):
+2. **The env file** — the fallback wherever there is no dialog (cloud
+   sessions, CI, hand-installed checkouts), and the only home for the
+   non-credential `PRISMA_*` tuning variables listed at the end of this file,
+   which the dialog does not cover (`install.sh` already created a template):
 
    ```bash
    # fill in ~/.prisma-sase.env (created by install.sh, chmod 600):
@@ -201,7 +204,8 @@ so on a comparable tenant things should work out of the box. Two open items:
 
 It probes candidates read-only, uses a documented control probe to separate
 auth problems from naming problems, and prints a `suggested_insights_map` to
-adopt as one line in `~/.prisma-sase.env`; then restart the Claude app.
+adopt as one line in `~/.prisma-sase.env` (tuning variables are not part of
+the enable dialog); then restart the Claude app.
 
 ## Try it offline first (no credentials)
 
@@ -217,7 +221,7 @@ data through the real code path — good for a first look or a customer demo.
 | Tools still missing right after installing the dependencies | The plugin server is only relaunched on a **full app restart** | macOS: **⌘Q** (closing the window is not enough), then reopen. Windows: quit from the tray/taskbar, not just the window |
 | `~/.prisma-sase-venv` exists but the server uses another interpreter | The venv's symlinked interpreter is dangling — common after a Python upgrade moves the version it was built against (the launch log now says so explicitly) | Recreate it: `rm -rf ~/.prisma-sase-venv && bash install.sh` |
 | `pip install fastmcp` → "No matching distribution found" | Misleading pip message — your Python is too old, the package exists | `python3 --version`; use a ≥ 3.10 interpreter (`install.sh` does this) |
-| "Missing required context / Missing PRISMA_CLIENT_ID…" although `launchctl getenv` shows values | macOS GUI apps launched from Finder/Dock are not guaranteed to inherit `launchctl setenv` (field-verified: on some machines the vars never arrive) | Use `~/.prisma-sase.env` (the primary path) — `install.sh` creates the template. `--selfcheck` shows which source supplied each value |
+| "Missing required context / Missing PRISMA_CLIENT_ID…" although `launchctl getenv` shows values | macOS GUI apps launched from Finder/Dock are not guaranteed to inherit `launchctl setenv` (field-verified: on some machines the vars never arrive) | Use the plugin enable dialog (the primary path on Desktop), or `~/.prisma-sase.env` if your install has no dialog — `install.sh` creates the template. `--selfcheck` shows which source supplied each value |
 | Insights tool returns HTTP 400 | Resource/view name or filter-payload shape doesn't match this tenant (the client already auto-tries time-filter and empty-filter variants) | Run `discover_insights` (or `--discover`), adopt the `suggested_insights_map` into `~/.prisma-sase.env` |
 | Alerts show only counts, `severity_unavailable: true` | The per-alert severity view (`prisma_sase_external_alerts_current`, tried automatically first) did not return usable rows on your tenant, so the tool fell back to the aggregate view (counts by MU/RN/SC) | `discover_insights(kind="alerts_detail")` probes the candidates; if none work, capture the real view name from the SASE UI (dev tools → Network — step-by-step in the Skill's `references/endpoints.md`, "When discovery finds nothing") and set `PRISMA_INSIGHTS_MAP`; please report working names so they become shipped defaults |
 | Insights 400 with `DATA10003` / "Invalid resource" | The resource/view **name does not exist** on this tenant | Run `discover_insights` for working names; adopt its suggestions |
@@ -247,10 +251,13 @@ upload the macOS/Linux variant on Windows; its `bash` command won't exist).
    selfcheck.
 3. In Claude Desktop: **Settings → Plugins → Upload from file** → pick
    **`prisma-sase-windows.plugin`**.
-4. Fill in `%USERPROFILE%\.prisma-sase.env` (same four variables). Plain user
-   environment variables (System Properties / `setx`, then restart the app)
-   also work on Windows — GUI apps there do inherit them — but the env file
-   stays the recommended, launch-method-independent path.
+4. Provide the four values. The uploaded `.plugin` carries the same
+   **enable dialog** as a marketplace install (the bundle ships
+   `userConfig`), so filling that in is the recommended path here too — the
+   secret lands in OS secure storage. Falling back to
+   `%USERPROFILE%\.prisma-sase.env` (same four variables) or to plain user
+   environment variables (System Properties / `setx`, then restart the app —
+   GUI apps on Windows do inherit them) both still work.
    (`chmod 600` doesn't apply on Windows; the file sits in your user profile,
    which NTFS already restricts to you + administrators.)
 5. Verify:
@@ -347,7 +354,7 @@ and stray `~/.prisma-sase*.env` copies the plugin never reads.
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `PRISMA_CLIENT_ID` / `PRISMA_CLIENT_SECRET` | ✅ | service account credentials (secret: env / env file only — never commit) |
+| `PRISMA_CLIENT_ID` / `PRISMA_CLIENT_SECRET` | ✅ | service account credentials — normally supplied by the enable dialog (secret → OS secure storage); set by hand only where there is no dialog, and never commit |
 | `PRISMA_TSG_ID` | ✅ | default Tenant Service Group id |
 | `PRISMA_REGION` | ✅ | `X-PANW-Region` header value (e.g. `sg`, `us`, `de`) |
 | `PRISMA_SUBTENANT_ID` | — | adds `Prisma-SubTenant` header |

@@ -53,7 +53,7 @@
         "client_secret": {
           "type": "string",
           "title": "Prisma SASE Client Secret",
-          "description": "Shown only once when the service account is created. Stored in your OS secure storage (macOS Keychain), never in plaintext settings. Leave empty to use ~/.prisma-sase.env or PRISMA_SECRET_CMD instead.",
+          "description": "Shown only once when the service account is created. Stored in your OS secure storage (macOS Keychain), never in plaintext settings. This is the recommended path; leave empty only if you supply the secret another way (~/.prisma-sase.env or PRISMA_SECRET_CMD).",
           "sensitive": true
         },
         "tsg_id": {
@@ -113,7 +113,7 @@
         "client_secret": {
           "type": "string",
           "title": "Prisma SASE Client Secret",
-          "description": "Shown only once when the service account is created. Stored in your OS secure storage (macOS Keychain), never in plaintext settings. Leave empty to use ~/.prisma-sase.env or PRISMA_SECRET_CMD instead.",
+          "description": "Shown only once when the service account is created. Stored in your OS secure storage (macOS Keychain), never in plaintext settings. This is the recommended path; leave empty only if you supply the secret another way (~/.prisma-sase.env or PRISMA_SECRET_CMD).",
           "sensitive": true
         },
         "tsg_id": {
@@ -174,7 +174,7 @@
         "client_secret": {
           "type": "string",
           "title": "Prisma SASE Client Secret",
-          "description": "Shown only once when the service account is created. Stored in your OS secure storage (macOS Keychain), never in plaintext settings. Leave empty to use ~/.prisma-sase.env or PRISMA_SECRET_CMD instead.",
+          "description": "Shown only once when the service account is created. Stored in your OS secure storage (macOS Keychain), never in plaintext settings. This is the recommended path; leave empty only if you supply the secret another way (~/.prisma-sase.env or PRISMA_SECRET_CMD).",
           "sensitive": true
         },
         "tsg_id": {

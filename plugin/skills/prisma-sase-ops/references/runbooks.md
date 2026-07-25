@@ -55,8 +55,12 @@ early once the cause is clear. Everything here is read-only.
 ## Runbook E — first run against a new tenant (bring-up)
 
 1. `--selfcheck` (terminal) — confirm interpreter, packages, credentials.
-   Credentials belong in `~/.prisma-sase.env` (chmod 600); on macOS, GUI apps
-   often do NOT inherit `launchctl setenv`, so don't debug that path first.
+   Credentials belong in the plugin enable dialog (marketplace installs) or
+   `~/.prisma-sase.env` (chmod 600) where there is no dialog. Note that a
+   selfcheck run from a plain shell cannot see dialog-supplied values — see
+   the Skill's credential-handling rules before concluding they are missing.
+   On macOS, GUI apps often do NOT inherit `launchctl setenv`, so don't debug
+   that path first.
 2. `discover_insights()` — find which Insights resource/view names this tenant
    accepts. Check `control_probe_ok` first: if the control failed, fix
    auth/region before trusting any naming conclusion.

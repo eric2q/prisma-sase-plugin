@@ -81,10 +81,14 @@ class AuthManager:
     def _fetch(self, tsg):
         if not config.CLIENT_ID or not config.CLIENT_SECRET:
             msg = ("Missing PRISMA_CLIENT_ID / PRISMA_CLIENT_SECRET. Easiest "
-                   "fix: add them to ~/.prisma-sase.env (chmod 600) -- on macOS, "
-                   "GUI apps often do not inherit launchctl setenv variables. "
-                   "These are deliberately NOT tool parameters: credentials "
-                   "must never travel through the conversation.")
+                   "fix: fill in the plugin's enable dialog (Settings -> "
+                   "Plugins -> prisma-sase) -- the secret goes to your OS "
+                   "secure storage, and a full app restart applies it. "
+                   "Without that dialog (cloud session, CI, standalone "
+                   "install), use ~/.prisma-sase.env (chmod 600) or "
+                   "PRISMA_SECRET_CMD. These are deliberately NOT tool "
+                   "parameters: credentials must never travel through the "
+                   "conversation.")
             ph = config.placeholder_hint()
             if ph:
                 msg += " " + ph

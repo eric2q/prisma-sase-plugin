@@ -300,10 +300,11 @@ def placeholder_hint():
         return None
     return (
         "Values for %s arrived as literal ${...} placeholders -- the MCP host "
-        "passed them through without expanding. Upgrade to plugin >= 0.2.0 "
-        "(its .mcp.json no longer uses an env block; variables are inherited "
-        "from your environment), or put the values in ~/.prisma-sase.env "
-        "(KEY=VALUE lines, chmod 600)." % ", ".join(PLACEHOLDER_VARS)
+        "passed them through without expanding. ${user_config.*} means your "
+        "host is too old to expand the plugin enable dialog; ${PRISMA_*} "
+        "means a stale pre-0.2.0 .mcp.json env block. Either way, upgrade "
+        "the host/plugin, or fall back to ~/.prisma-sase.env (KEY=VALUE "
+        "lines, chmod 600)." % ", ".join(PLACEHOLDER_VARS)
     )
 
 

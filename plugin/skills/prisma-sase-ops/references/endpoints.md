@@ -88,7 +88,8 @@ resource/view and payload shape your tenant version uses:
 4. From the request: copy the **resource/view names** (URL) and note the
    **filter/properties payload** (Request body) — the time property name and
    any severity/state property names.
-5. Adopt them without touching code — one line in `~/.prisma-sase.env`:
+5. Adopt them without touching code — one line in `~/.prisma-sase.env` (the
+   enable dialog holds credentials only; tuning variables live in the file):
    ```
    PRISMA_INSIGHTS_MAP={"alerts_detail":{"resource":"<from URL>","view":"<from URL or empty>","verified":true}}
    ```

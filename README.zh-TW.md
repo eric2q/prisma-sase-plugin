@@ -91,10 +91,10 @@ OS 安裝 **prisma-sase-mac**、**prisma-sase-linux** 或 **prisma-sase-windows*
 
 **3. 憑證 —— 產生 API Key**(完整圖解見下一節),然後提供四個值。
 **Marketplace 安裝會在啟用 plugin 時跳出表單直接問你**(Client Secret 存進
-作業系統的安全儲存區 —— macOS 是 Keychain —— 不落地成明文檔),建議優先用
-這條路。傳統的 `~/.prisma-sase.env`(Windows:
-`%USERPROFILE%\.prisma-sase.env`;範本已由安裝腳本建立)仍完整支援 ——
-雲端 session、CI、或沒有表單的環境走這條。填完後重啟 Claude 應用程式。
+作業系統的安全儲存區 —— macOS 是 Keychain —— 不落地成明文檔),請走這條路。
+`~/.prisma-sase.env`(Windows:`%USERPROFILE%\.prisma-sase.env`;範本已由安裝
+腳本建立)是備援 —— 雲端 session、CI、或沒有表單的環境走這條,表單沒涵蓋的
+選用調校變數也放這裡。填完後重啟 Claude 應用程式。
 更多細節、selfcheck 與疑難排解請見:[`plugin/README.md`](plugin/README.md)
 (英文)。
 
@@ -152,7 +152,7 @@ scope 只綁必要租戶。
   Claude 會跳出表單問 Client ID、Client Secret、TSG ID、Region。Secret 存進
   **作業系統安全儲存區**(macOS Keychain),不落任何明文檔。
 - **憑證檔**(`~/.prisma-sase.env`,KEY=VALUE、不需引號;下例以星號遮罩)——
-  雲端 session、CI、或沒有表單的環境用:
+  備援路徑,雲端 session、CI、或沒有表單的環境用:
 
   ```
   PRISMA_CLIENT_ID=apikey@**********.iam.panserviceaccount.com
