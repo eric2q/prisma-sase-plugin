@@ -19,15 +19,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLUGIN_DIR = os.path.join(ROOT, "plugin")
 DIST = os.path.join(ROOT, "dist")
 
-_BASH = {"mcpServers": {"prisma-sase": {
-    "command": "bash", "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/run.sh"]}}}
-_CMD = {"mcpServers": {"prisma-sase": {
-    "command": "cmd", "args": ["/c", "${CLAUDE_PLUGIN_ROOT}\\mcp\\run.cmd"]}}}
-MCP_CONFIGS = {
-    "prisma-sase-mac": _BASH,
-    "prisma-sase-linux": _BASH,
-    "prisma-sase-windows": _CMD,
-}
+# Since v0.8.0 the launcher config (incl. the userConfig env substitutions)
+# is taken verbatim from each marketplace entry -- one source of truth, the
+# two install paths cannot drift.
+PLUGIN_NAMES = ("prisma-sase-mac", "prisma-sase-linux", "prisma-sase-windows")
 
 EXCLUDE_DIRS = {"__pycache__", ".git"}
 EXCLUDE_SUFFIX = (".pyc", ".DS_Store")
@@ -106,7 +101,7 @@ def main():
     entries = {p["name"]: p for p in market["plugins"]}
 
     os.makedirs(DIST, exist_ok=True)
-    for name, mcp_cfg in MCP_CONFIGS.items():
+    for name in PLUGIN_NAMES:
         entry = entries[name]
         manifest = {
             "name": name,
@@ -115,6 +110,9 @@ def main():
             "author": entry.get("author", {}),
             "keywords": entry.get("keywords", []),
         }
+        if entry.get("userConfig"):
+            manifest["userConfig"] = entry["userConfig"]
+        mcp_cfg = {"mcpServers": entry["mcpServers"]}
         out = os.path.join(DIST, "%s.plugin" % name)
         with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
             for full, rel in tree_files():

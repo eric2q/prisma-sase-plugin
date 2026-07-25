@@ -106,17 +106,38 @@ Never paste the Client Secret into a chat — the tools take no credential
 parameters by design; if a secret leaks, rotate it in SCM and update the env
 file.
 
-**Step 4 — provide the four variables.**
+**Step 4 — provide the four variables.** Three supported sources, in the
+order the server resolves them:
 
-**Recommended: the env file** (`install.sh` already created a template):
+1. **The plugin enable dialog (userConfig — recommended for marketplace
+   installs).** Claude prompts for the four values when the plugin is
+   enabled; the Client Secret is `sensitive` and lands in the OS secure
+   storage (macOS Keychain), never in plaintext settings. If your host is
+   too old to expand the dialog values, the server detects the literal
+   `${user_config.*}` placeholders, treats them as unset, and falls through
+   to the env file — `--selfcheck` names exactly what happened.
+2. **The env file** (`install.sh` already created a template):
 
-```bash
-# fill in ~/.prisma-sase.env (created by install.sh, chmod 600):
-PRISMA_CLIENT_ID=svc-...@....iam.panserviceaccount.com
-PRISMA_CLIENT_SECRET=...
-PRISMA_TSG_ID=1234567890
-PRISMA_REGION=sg
-```
+   ```bash
+   # fill in ~/.prisma-sase.env (created by install.sh, chmod 600):
+   PRISMA_CLIENT_ID=svc-...@....iam.panserviceaccount.com
+   PRISMA_CLIENT_SECRET=...
+   PRISMA_TSG_ID=1234567890
+   PRISMA_REGION=sg
+   ```
+3. **`PRISMA_SECRET_CMD`** — keep everything except the secret in the env
+   file and fetch the secret from a secret store at startup (the file then
+   contains nothing sensitive):
+
+   ```bash
+   PRISMA_SECRET_CMD=security find-generic-password -s prisma-sase -w   # macOS Keychain
+   # secret-tool lookup service prisma-sase key client_secret           # Linux
+   # pass show prisma-sase/client-secret                                # pass
+   # op read "op://Private/prisma-sase/client secret"                   # 1Password
+   ```
+   (Store it first, e.g. macOS: `security add-generic-password -s
+   prisma-sase -a client_secret -w`.) `--selfcheck` shows which source
+   supplied the secret.
 
 This is the **primary** path on macOS: GUI apps launched from Finder/Dock/
 Spotlight are **not guaranteed to inherit `launchctl setenv` variables** — on
@@ -238,12 +259,14 @@ PRISMA_ENV_FILE=/path/to/prisma-sase.env
 
 ⚠️ **Storage principles (apply everywhere, not just cloud):**
 
-- The env file on your **local machine** is the credentials' **only
-  long-term home** (`~/.prisma-sase.env`, `chmod 600`). One file, one place.
-- **Never** commit it to a git repo, keep copies in project folders beyond a
-  session, sync it to shared drives/cloud storage, or paste the Client
+- Credentials live in exactly one of the **supported homes** — the OS secure
+  storage (plugin enable dialog / `PRISMA_SECRET_CMD` backends) or the local
+  env file (`~/.prisma-sase.env`, `chmod 600`) — and **nowhere else**.
+- **Never** commit them to a git repo, keep copies in project folders beyond
+  a session, sync them to shared drives/cloud storage, or paste the Client
   Secret into any conversation — a secret in chat is a secret in the
-  transcript.
+  transcript. (The enable dialog is the host's settings UI, not the
+  conversation — filling it in is fine.)
 - The cloud-staged copy above is a **temporary working copy**, not a second
   home — delete it as soon as the session's work is done.
 - If a secret is ever exposed, **rotate it in SCM** (IAM → service account →
@@ -268,7 +291,8 @@ Skill's **bootstrap runbook** (SKILL.md) and the launch breadcrumb at
 | `PRISMA_SUBTENANT_ID` | — | adds `Prisma-SubTenant` header |
 | `PRISMA_MOCK` | — | `1` = offline mock mode |
 | `PRISMA_PYTHON` | — | absolute path of the interpreter `run.sh` should use |
-| `PRISMA_ENV_FILE` | — | custom env-file path (default `~/.prisma-sase.env`, the primary credential mechanism) |
+| `PRISMA_ENV_FILE` | — | custom env-file path (default `~/.prisma-sase.env`) |
+| `PRISMA_SECRET_CMD` | — | command whose stdout supplies the Client Secret (keychain / secret-tool / pass / `op read`); used only when `PRISMA_CLIENT_SECRET` is otherwise unset |
 | `PRISMA_INSIGHTS_MAP` | — | JSON override of Insights resource/view names once confirmed |
 | `PRISMA_FILTER_TIME_PROP` / `_SEVERITY_PROP` / `_STATE_PROP` | — | override Insights filter property names |
 | `PRISMA_ADEM_ENDPOINT_TYPE` | — | ADEM `endpoint-type` (default `muAgent`) |

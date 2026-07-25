@@ -113,6 +113,16 @@ def _selfcheck():
     print("  region:       %s" % (d["region"] or "(not set)"))
     print("  credentials:  %s" % ("all 4 required vars set" if not d["missing"]
                                   else "MISSING: " + ", ".join(d["missing"])))
+    _src = {"environment": "environment (host/userConfig dialog or shell)",
+            "env_file": "env file (PLAINTEXT -- consider the userConfig "
+                        "dialog or PRISMA_SECRET_CMD)",
+            "secret_cmd": "PRISMA_SECRET_CMD (keychain/manager-backed)"}
+    if d["secret_source"]:
+        print("  secret from:  %s" % _src.get(d["secret_source"],
+                                              d["secret_source"]))
+    elif d["secret_cmd_set"]:
+        print("  secret from:  PRISMA_SECRET_CMD is set but returned nothing "
+              "-- run it by hand to debug")
     if d["unexpanded_placeholders"]:
         print("  placeholders: WARNING -- literal ${...} received for: %s"
               % ", ".join(d["unexpanded_placeholders"]))

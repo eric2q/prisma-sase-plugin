@@ -89,10 +89,14 @@ OS 安裝 **prisma-sase-mac**、**prisma-sase-linux** 或 **prisma-sase-windows*
 /plugin install prisma-sase-windows@prisma-sase  # Windows
 ```
 
-**3. 憑證 —— 產生 API Key 並填入**(完整圖解見下一節)。四個值填進
-`~/.prisma-sase.env`(Windows:`%USERPROFILE%\.prisma-sase.env`;範本已由
-安裝腳本建立),填完後重啟 Claude 應用程式。更多細節、selfcheck 與疑難排解
-請見:[`plugin/README.md`](plugin/README.md)(英文)。
+**3. 憑證 —— 產生 API Key**(完整圖解見下一節),然後提供四個值。
+**Marketplace 安裝會在啟用 plugin 時跳出表單直接問你**(Client Secret 存進
+作業系統的安全儲存區 —— macOS 是 Keychain —— 不落地成明文檔),建議優先用
+這條路。傳統的 `~/.prisma-sase.env`(Windows:
+`%USERPROFILE%\.prisma-sase.env`;範本已由安裝腳本建立)仍完整支援 ——
+雲端 session、CI、或沒有表單的環境走這條。填完後重啟 Claude 應用程式。
+更多細節、selfcheck 與疑難排解請見:[`plugin/README.md`](plugin/README.md)
+(英文)。
 
 ## 產生 API Key(建立唯讀 Service Account)
 
@@ -142,23 +146,33 @@ scope 只綁必要租戶。
 
 <img src="plugin/docs/images/scm-4-assign-roles.png" alt="Assign Roles:All Apps & Services + View Only Administrator → Submit" width="640">
 
-**填入憑證檔**(用步驟 3 記下的完整內容,KEY=VALUE 格式、不需引號;下例以
-星號遮罩,僅示意格式):
+**提供步驟 3 記下的值** —— 兩條支援路徑:
 
-```
-PRISMA_CLIENT_ID=apikey@**********.iam.panserviceaccount.com
-PRISMA_CLIENT_SECRET=********************************
-PRISMA_TSG_ID=**********
-PRISMA_REGION=sg
-```
+- **Plugin 啟用表單(Desktop 建議用這條):** 從 marketplace 安裝/啟用時,
+  Claude 會跳出表單問 Client ID、Client Secret、TSG ID、Region。Secret 存進
+  **作業系統安全儲存區**(macOS Keychain),不落任何明文檔。
+- **憑證檔**(`~/.prisma-sase.env`,KEY=VALUE、不需引號;下例以星號遮罩)——
+  雲端 session、CI、或沒有表單的環境用:
+
+  ```
+  PRISMA_CLIENT_ID=apikey@**********.iam.panserviceaccount.com
+  PRISMA_CLIENT_SECRET=********************************
+  PRISMA_TSG_ID=**********
+  PRISMA_REGION=sg
+  ```
+
+  Secret 那行也可以改成指向密碼管理器、讓整個檔案變成非機密:
+  `PRISMA_SECRET_CMD=security find-generic-password -s prisma-sase -w`
+  (`secret-tool`、`pass`、`op read` 也都適用)。
 
 `PRISMA_TSG_ID` 就是 Client ID 中 `@` 之後的數字;`PRISMA_REGION` 填租戶
 實際 region(例如 `sg`、`us`、`de`)。填完重啟 Claude 應用程式,並可用
-server 的 `--selfcheck` 驗證。
+server 的 `--selfcheck` 驗證 —— 它會顯示 secret 來自哪個來源。
 
-**存放原則:** 這個憑證檔**只存放在你的本機**,而且是唯一的長期存放位置
-(`chmod 600`)。不要提交進任何 repo、不要在專案資料夾留副本、不要把內容
-貼到任何地方 —— 雲端 session 需要時,用暫時的工作副本並在用完後刪除
+**存放原則:** 憑證只存在於受支援的存放地之一 —— 作業系統安全儲存區
+(啟用表單 / `PRISMA_SECRET_CMD`)或本機憑證檔(`chmod 600`)—— 此外
+**哪裡都不放**。不要提交進任何 repo、不要在專案資料夾留副本、不要把
+secret 貼到任何地方;雲端 session 用暫時工作副本、用完即刪
 (見 [`plugin/README.md`](plugin/README.md) 的 "Cloud sessions" 一節)。
 
 > ⚠️ **Client Secret 請勿貼進任何對話、聊天視窗或文件** —— 工具刻意不提供

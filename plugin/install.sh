@@ -94,13 +94,25 @@ fi
 ENVF="$HOME/.prisma-sase.env"
 if [ ! -f "$ENVF" ]; then
   cat > "$ENVF" <<'EOF'
-# prisma-sase credentials -- fill in the values below (KEY=VALUE, no quotes needed).
-# This file is the recommended way to provide credentials on macOS.
+# prisma-sase credentials (KEY=VALUE, no quotes needed).
 # Keep it private: chmod 600 ~/.prisma-sase.env
+#
+# Marketplace installs: the plugin's enable dialog (userConfig) can supply all
+# four values -- the secret then lives in your OS secure storage and every
+# line here may stay empty. This file remains the path for cloud sessions,
+# CI, and hosts without the dialog.
 PRISMA_CLIENT_ID=
-PRISMA_CLIENT_SECRET=
 PRISMA_TSG_ID=
 PRISMA_REGION=sg
+# Secret, pick ONE:
+#  a) plaintext here (simplest):
+PRISMA_CLIENT_SECRET=
+#  b) or fetch it from a secret store at startup (keeps this file
+#     non-sensitive). Examples:
+#       PRISMA_SECRET_CMD=security find-generic-password -s prisma-sase -w
+#       PRISMA_SECRET_CMD=secret-tool lookup service prisma-sase key client_secret
+#       PRISMA_SECRET_CMD=pass show prisma-sase/client-secret
+#       PRISMA_SECRET_CMD=op read "op://Private/prisma-sase/client secret"
 EOF
   chmod 600 "$ENVF"
   echo "-- created credential template $ENVF (chmod 600) -- fill in your values"
