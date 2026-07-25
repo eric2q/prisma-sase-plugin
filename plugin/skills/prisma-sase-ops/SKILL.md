@@ -129,7 +129,16 @@ Structural fact of cloud/remote sessions (Cowork web, remote containers):
 launched there** — a fresh container has no `~/.prisma-sase-venv`, no
 fastmcp/httpx, and no `~/.prisma-sase.env`. If `get_sase_status` /
 `query_alerts` etc. are NOT in your tool list, do not improvise answers and
-do not give up — bootstrap in ~2 minutes:
+do not give up.
+
+**First, look for `prisma_sase_setup_required`.** If that tool is present,
+the server failed to start and a dependency-free fallback took over: call
+it, then relay its diagnosis and fix commands to the user verbatim (they are
+copy-paste ready). Remind them to restart the Claude app **completely**
+afterwards — macOS ⌘Q; closing the window does not relaunch plugin servers.
+Do not attempt tenant answers while in this state.
+
+If no tools at all are present, bootstrap in ~2 minutes:
 
 1. **Diagnose** — read the launch breadcrumb FIRST, then run selfcheck:
    ```bash
