@@ -22,6 +22,13 @@ Then tell the team the repo slug — that's all they need for
    ```bash
    PRISMA_MOCK=1 python3 plugin/mcp/server.py --selfcheck
    ```
+   Then run the regression suite — stdlib only, no network, no credentials.
+   It pins the shipped bugs (tunnel-state honesty, uninstall deletion,
+   env-file resolution, secret non-disclosure) and checks the version
+   lockstep of step 4 for you:
+   ```bash
+   python3 tools/test-regressions.py
+   ```
 3. Record changes in `plugin/CHANGELOG.md` — this is the **user-facing version
    history** (linked from both root READMEs), so write it for users: what was
    fixed (`FIX`), what's new (`NEW`), what behaves differently (`CHG`).

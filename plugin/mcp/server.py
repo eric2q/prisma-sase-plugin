@@ -130,6 +130,14 @@ def _selfcheck():
     print("  env file:     %s" % (
         "%s (supplied: %s)" % (d["env_file"], ", ".join(d["env_file_keys"]) or "none")
         if d["env_file"] else "none found (~/.prisma-sase.env)"))
+    if d["env_file_missing"]:
+        print("  WARNING:      PRISMA_ENV_FILE points at %s, which does not "
+              "exist.\n                Nothing was read from it%s. Fix the path "
+              "(cloud sessions: the staged\n                copy must be "
+              "readable from INSIDE the session)."
+              % (d["env_file_missing"],
+                 " -- fell back to %s" % d["env_file"] if d["env_file"]
+                 else " and no other env file was found"))
     print("  region:       %s" % (d["region"] or "(not set)"))
     print("  credentials:  %s" % ("all 4 required vars set" if not d["missing"]
                                   else "MISSING: " + ", ".join(d["missing"])))
@@ -373,6 +381,10 @@ def main():
     if d["env_file"]:
         log.info("env file: %s (supplied: %s)", d["env_file"],
                  ", ".join(d["env_file_keys"]) or "none")
+    if d["env_file_missing"]:
+        log.warning("PRISMA_ENV_FILE points at %s, which does not exist -- "
+                    "nothing was read from it. Check the path.",
+                    d["env_file_missing"])
     if d["unexpanded_placeholders"]:
         log.warning("literal ${...} placeholders received for %s -- %s",
                     ", ".join(d["unexpanded_placeholders"]),
