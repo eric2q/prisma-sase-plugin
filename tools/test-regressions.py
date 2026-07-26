@@ -461,6 +461,237 @@ class UserConfigBinding(unittest.TestCase):
             "settings.json")
 
 
+class HostSuppliedNothing(unittest.TestCase):
+    """0.8.8 -- the host enables the plugin without ever running the
+    userConfig dialog, then expands ${user_config.*} to EMPTY STRINGS.
+
+    Field-verified on the Cowork marketplace-cache surface: settings.json
+    listed the plugin under enabledPlugins with no pluginConfigs entry, and
+    every tool failed with a bare "missing credentials". The plugin blamed
+    itself -- its placeholder guard could not fire, because the values were
+    not literal ${...}, they were "".
+
+    These tests pin the distinction the diagnosis rests on: absent, empty and
+    literal-placeholder are three different states with three different fixes.
+    """
+
+    ENABLED_NO_CONFIG = ('{"enabledPlugins": {"prisma-sase-mac@prisma-sase": '
+                         'true}, "pluginConfigs": {"other@x": {"options": '
+                         '{"a": "b"}}}}')
+
+    def _diagnose(self, settings_json=None, **env_overrides):
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, True)
+        if settings_json is not None:
+            os.makedirs(os.path.join(home, ".claude"))
+            with open(os.path.join(home, ".claude", "settings.json"), "w") as fh:
+                fh.write(settings_json)
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith("PRISMA_")}
+        env["HOME"] = home
+        env.update(env_overrides)
+        code = ("import sys, json; sys.path.insert(0, %r); import config;\n"
+                "d = config.userconfig_diagnosis();\n"
+                "print(json.dumps({'kind': (d or {}).get('kind'),\n"
+                "  'vars': (d or {}).get('vars'),\n"
+                "  'empty': config.EMPTY_VARS,\n"
+                "  'msg': (d or {}).get('message', '')}))" % MCP)
+        out = subprocess.run([sys.executable, "-c", code], env=env,
+                             stdout=subprocess.PIPE, check=True)
+        import json
+        return json.loads(out.stdout.decode())
+
+    def test_empty_string_is_not_treated_as_absent(self):
+        result = self._diagnose(self.ENABLED_NO_CONFIG,
+                                PRISMA_CLIENT_ID="", PRISMA_TSG_ID="",
+                                PRISMA_REGION="sg")
+        self.assertIn("PRISMA_CLIENT_ID", result["empty"])
+        self.assertIn("PRISMA_TSG_ID", result["empty"])
+        self.assertEqual(result["kind"], "expanded_empty")
+
+    def test_diagnosis_attributes_the_fault_to_the_host(self):
+        result = self._diagnose(self.ENABLED_NO_CONFIG,
+                                PRISMA_CLIENT_ID="", PRISMA_CLIENT_SECRET="",
+                                PRISMA_TSG_ID="", PRISMA_REGION="sg")
+        self.assertIn("HOST issue", result["msg"])
+        self.assertIn("enable dialog never collected", result["msg"])
+        # It must also offer a way out, not just an attribution.
+        self.assertIn(".prisma-sase.env", result["msg"])
+
+    def test_enabled_with_no_config_entry_is_detected(self):
+        result = self._diagnose(self.ENABLED_NO_CONFIG)
+        self.assertEqual(result["kind"], "never_configured")
+
+    def test_literal_placeholders_outrank_settings_json(self):
+        """Direct evidence from this process beats what settings.json implies."""
+        result = self._diagnose(self.ENABLED_NO_CONFIG,
+                                PRISMA_CLIENT_ID="${user_config.client_id}")
+        self.assertEqual(result["kind"], "unexpanded")
+
+    def test_no_false_alarm_when_credentials_are_present(self):
+        result = self._diagnose(self.ENABLED_NO_CONFIG,
+                                PRISMA_CLIENT_ID="id", PRISMA_CLIENT_SECRET="s",
+                                PRISMA_TSG_ID="1", PRISMA_REGION="sg")
+        self.assertIsNone(result["kind"])
+
+    def test_no_diagnosis_without_host_evidence(self):
+        """Credentials absent but no settings.json -- not the host's fault."""
+        result = self._diagnose(None)
+        self.assertIsNone(result["kind"])
+
+    def test_selfcheck_does_not_claim_the_plugin_is_configured(self):
+        """The reassuring 'IS configured' branch must not fire here.
+
+        That branch exits 0 and tells the user everything is fine -- the same
+        false positive the settings UI gives with its fixed-width masked dots.
+        """
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, True)
+        os.makedirs(os.path.join(home, ".claude"))
+        with open(os.path.join(home, ".claude", "settings.json"), "w") as fh:
+            fh.write(self.ENABLED_NO_CONFIG)
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith("PRISMA_")}
+        env.update({"HOME": home, "PRISMA_CLIENT_ID": "",
+                    "PRISMA_CLIENT_SECRET": "", "PRISMA_TSG_ID": "",
+                    "PRISMA_REGION": "sg"})
+        proc = subprocess.run(
+            [sys.executable, os.path.join(MCP, "server.py"), "--selfcheck"],
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        text = proc.stdout.decode()
+        self.assertEqual(proc.returncode, 1,
+                         "must exit non-zero:\n" + text)
+        self.assertNotIn("The plugin IS configured", text)
+        self.assertIn("ENABLED but has NO configuration entry", text)
+        self.assertIn("expanded_empty", text)
+
+    def test_status_tool_blames_the_host_not_the_tenant(self):
+        """Desktop users only reach the tools -- the verdict must be there."""
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, True)
+        os.makedirs(os.path.join(home, ".claude"))
+        with open(os.path.join(home, ".claude", "settings.json"), "w") as fh:
+            fh.write(self.ENABLED_NO_CONFIG)
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith("PRISMA_")}
+        env.update({"HOME": home, "PRISMA_CLIENT_ID": "",
+                    "PRISMA_CLIENT_SECRET": "", "PRISMA_TSG_ID": "",
+                    "PRISMA_REGION": "sg"})
+        code = ("import sys, json; sys.path.insert(0, %r);\n"
+                "from tools.status import get_sase_status;\n"
+                "r = get_sase_status();\n"
+                "print(json.dumps({'headline': r['headline'],\n"
+                "  'cns': r.get('credentials_not_supplied')}))" % MCP)
+        out = subprocess.run([sys.executable, "-c", code], env=env,
+                             stdout=subprocess.PIPE, check=True)
+        import json
+        result = json.loads(out.stdout.decode())
+        self.assertIsNotNone(result["cns"],
+                             "get_sase_status must carry the verdict")
+        self.assertEqual(result["cns"]["whose_fault"], "host")
+        self.assertIn("host configuration problem", result["headline"])
+
+
+@unittest.skipIf(os.name == "nt", "setup-keychain.sh is POSIX-only")
+class KeychainSetupScript(unittest.TestCase):
+    """0.8.8 -- the recommended stopgap when the enable dialog is unavailable.
+
+    Its whole point is that the secret never lands in a file, so the test that
+    matters is: whatever it writes, the secret is not in it.
+    """
+
+    SCRIPT = os.path.join(ROOT, "plugin", "setup-keychain.sh")
+    SECRET = "CANARY-KEYCHAIN-SECRET"
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.home, True)
+        # A fake `security` on PATH: the real one needs a GUI authorization
+        # prompt that no test environment can answer.
+        binn = os.path.join(self.home, "bin")
+        os.makedirs(binn)
+        fake = os.path.join(binn, "security")
+        with open(fake, "w") as fh:
+            fh.write(
+                "#!/usr/bin/env bash\n"
+                "store=%s/store\n"
+                'case "$1" in\n'
+                '  add-generic-password) printf "%%s" "${!#}" > "$store" ;;\n'
+                '  find-generic-password) cat "$store" 2>/dev/null ;;\n'
+                '  delete-generic-password) rm -f "$store" ;;\n'
+                "esac\n" % self.home)
+        os.chmod(fake, 0o755)
+        self.env = {k: v for k, v in os.environ.items()
+                    if not k.startswith("PRISMA_")}
+        self.env.update({"HOME": self.home,
+                         "PATH": binn + os.pathsep + os.environ["PATH"]})
+        self.envf = os.path.join(self.home, ".prisma-sase.env")
+
+    def _run(self, *args, stdin=None):
+        return subprocess.run(["bash", self.SCRIPT, *args], env=self.env,
+                              input=stdin.encode() if stdin else None,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+    def test_script_is_syntactically_valid(self):
+        proc = subprocess.run(["bash", "-n", self.SCRIPT],
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        self.assertEqual(proc.returncode, 0, proc.stdout.decode())
+
+    def test_written_env_file_contains_no_plaintext_secret(self):
+        self._run("--stdin", stdin=self.SECRET)
+        with open(self.envf) as fh:
+            content = fh.read()
+        self.assertNotIn(self.SECRET, content,
+                         "the whole point of this script is that the secret "
+                         "does not land in the file")
+        self.assertIn("PRISMA_SECRET_CMD=", content)
+
+    def test_env_file_is_owner_only(self):
+        self._run("--stdin", stdin=self.SECRET)
+        self.assertEqual(os.stat(self.envf).st_mode & 0o777, 0o600)
+
+    def test_tuning_variables_survive(self):
+        """The dialog does not cover these, so the file is their only home."""
+        with open(self.envf, "w") as fh:
+            fh.write('PRISMA_INSIGHTS_MAP={"alerts":{"resource":"a"}}\n'
+                     "PRISMA_CLIENT_ID=keep-me\n")
+        self._run("--stdin", stdin=self.SECRET)
+        with open(self.envf) as fh:
+            content = fh.read()
+        self.assertIn("PRISMA_INSIGHTS_MAP=", content)
+        self.assertIn("keep-me", content)
+
+    def test_migrating_from_plaintext_warns_about_rotation(self):
+        with open(self.envf, "w") as fh:
+            fh.write("PRISMA_CLIENT_SECRET=OLD-PLAINTEXT\n"
+                     "PRISMA_CLIENT_ID=x\nPRISMA_TSG_ID=1\n")
+        out = self._run("--stdin", stdin=self.SECRET).stdout.decode()
+        self.assertIn("ROTATE", out,
+                      "removing a plaintext secret does not un-expose it")
+        with open(self.envf) as fh:
+            self.assertNotIn("OLD-PLAINTEXT", fh.read())
+
+    def test_incomplete_unattended_run_warns(self):
+        out = self._run("--stdin", stdin=self.SECRET).stdout.decode()
+        self.assertIn("still empty", out,
+                      "a file missing client_id/tsg_id must not look complete")
+
+    def test_the_server_resolves_the_secret_through_the_written_file(self):
+        """End to end: script -> env file -> config picks the secret up."""
+        self._run("--stdin", stdin=self.SECRET)
+        code = ("import sys; sys.path.insert(0, %r); import config;\n"
+                "print(config.SECRET_SOURCE, config.CLIENT_SECRET == %r)"
+                % (MCP, self.SECRET))
+        out = subprocess.run([sys.executable, "-c", code], env=self.env,
+                             stdout=subprocess.PIPE, check=True)
+        self.assertEqual(out.stdout.decode().strip(), "secret_cmd True")
+
+    def test_show_and_remove_do_not_crash(self):
+        self._run("--stdin", stdin=self.SECRET)
+        self.assertEqual(self._run("--show").returncode, 0)
+        self.assertEqual(self._run("--remove").returncode, 0)
+
+
 class MockSmokeTest(unittest.TestCase):
     """Every tool returns ok=True offline -- catches import/shape breakage."""
 

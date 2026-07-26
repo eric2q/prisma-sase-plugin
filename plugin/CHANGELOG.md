@@ -1,5 +1,77 @@
 # Changelog
 
+## 0.8.8 — 2026-07-27
+
+The **host** enables the plugin without ever running the `userConfig` dialog,
+then expands `${user_config.*}` to **empty strings**. Every tool fails for
+missing credentials; the settings screen shows four masked dots and looks
+configured. Field-verified on the Cowork marketplace-cache surface — and
+confirmed against `~/.claude/settings.json`, which listed the plugin under
+`enabledPlugins` with **no `pluginConfigs` entry at all**.
+
+This is a host bug and the fix belongs there
+([bug report](../BUG-REPORT-userconfig-dialog-never-shown.md), filed
+separately). What ships here is the plugin refusing to take the blame for it:
+the failure is now detected, correctly attributed, and paired with a recovery
+path. Distinct from 0.8.7 — that fixed the `--plugin-dir` sideload path and
+produced *literal* `${user_config.*}` strings; this is the opposite signature.
+
+- **FIX (diagnosis, high):** an env var that is **set but empty** is no longer
+  indistinguishable from one that is **absent**. Absent means nobody tried;
+  empty means the host substituted `${user_config.*}` and had nothing to
+  substitute. Only the second implicates the dialog — and it was precisely the
+  case the 0.2.0 placeholder guard could not catch, because the values were
+  not literal `${...}`, they were `""`. Recorded in `EMPTY_VARS`.
+- **FIX (diagnosis, high):** `--selfcheck` no longer reports **"The plugin IS
+  configured via the enable dialog"** (and exit 0) when the host holds no
+  configuration for it. That reassurance reproduced, in the one place a user
+  can get a straight answer, the same false positive the settings UI gives
+  with its fixed-width masked dots. It now says `ENABLED but has NO
+  configuration entry`, prints the diagnosis, and exits non-zero.
+- **NEW:** `userconfig_diagnosis()` classifies a credential gap the host
+  caused into `expanded_empty` (dialog never collected), `never_configured`
+  (enabled with no config entry) or `unexpanded` (host cannot substitute at
+  all), each with its own fix. Direct evidence from the running process
+  outranks what `settings.json` implies. Returns nothing on a healthy install,
+  so it never becomes noise.
+- **NEW:** the verdict now reaches every surface a stuck user can see —
+  `get_sase_status` gains `credentials_not_supplied` (with
+  `whose_fault: "host"`) and an explicit headline, tool errors lead with it
+  instead of advising a dialog that never ran, and the startup log warns.
+  SKILL tells Claude to relay it verbatim and **not** to debug the tenant or
+  send the user to re-check their API key.
+- **NEW:** `plugin/setup-keychain.sh` — the recommended way to recover when
+  the dialog is unavailable, because it is the only option besides the dialog
+  that keeps the secret **out of a plaintext file**. Prompts for the secret
+  (hidden — never a command-line argument, which `ps` would expose), stores it
+  in the platform keychain (macOS Keychain / `secret-tool` / `pass`), and
+  writes a `~/.prisma-sase.env` holding only the three non-secret values plus
+  the matching `PRISMA_SECRET_CMD`. Preserves tuning variables, warns to
+  **rotate** if it just replaced a plaintext secret, and flags an incomplete
+  unattended run instead of writing a file that looks finished.
+  `--show` / `--remove` / `--stdin`.
+- **NEW (docs):** plugin README gains *"When the enable dialog never asked for
+  anything"* — the symptom, why the masked dots in Settings prove nothing, a
+  table of the three diagnosis kinds, **step 1: re-trigger the dialog**
+  (per-host instructions; preferred, since it needs no file), step 2: the
+  keychain or env-file stopgap, and step 3: clean up once the dialog works.
+  Both root READMEs point at it. It states explicitly that this is **not dual
+  configuration** — resolution is environment → env file → `PRISMA_SECRET_CMD`,
+  first value wins, so the file only fills gaps and the dialog silently
+  reclaims precedence the moment it works.
+- **NEW (Skill):** a matching runbook. Claude now leads with the attribution
+  (host bug, not the user, not the tenant), pre-empts the misleading settings
+  screen, is told **not** to send anyone to re-check their API key or region,
+  and walks dialog-first → keychain → env file while never accepting the
+  secret in conversation. The credential rules now rank the three homes
+  instead of listing them as equals.
+- **NEW:** 16 regression tests — all three diagnosis kinds and their
+  precedence, both no-false-alarm paths, the selfcheck exit code, the
+  `get_sase_status` verdict, and for the keychain script: no plaintext secret
+  in the written file, mode 600, tuning variables preserved, the rotation
+  warning, and an end-to-end check that the server really resolves the secret
+  through `PRISMA_SECRET_CMD`.
+
 ## 0.8.7 — 2026-07-27
 
 The enable dialog silently supplied nothing when the plugin was **sideloaded**

@@ -166,18 +166,37 @@ order the server resolves them:
    the four values into your shell is not a reliable substitute. Custom
    location: `PRISMA_ENV_FILE`.
 3. **`PRISMA_SECRET_CMD`** — keep everything except the secret in the env
-   file and fetch the secret from a secret store at startup (the file then
-   contains nothing sensitive):
+   file and fetch the secret from a secret store at startup, so the file
+   contains nothing sensitive. **One command sets this up:**
 
    ```bash
-   PRISMA_SECRET_CMD=security find-generic-password -s prisma-sase -w   # macOS Keychain
+   bash plugin/setup-keychain.sh
+   ```
+
+   It prompts for the secret (hidden — never a command-line argument, which
+   would be visible in `ps`), stores it in the platform's keychain (macOS
+   Keychain / `secret-tool` / `pass`), and writes a `~/.prisma-sase.env` with
+   the three non-secret values plus the right `PRISMA_SECRET_CMD` line. It
+   preserves tuning variables already in the file, and if the file previously
+   held a plaintext secret it tells you to rotate it. Other modes:
+   `--show` (what is stored, changes nothing), `--remove`, and `--stdin` for
+   unattended use.
+
+   To wire it by hand instead:
+
+   ```bash
+   PRISMA_SECRET_CMD=security find-generic-password -s prisma-sase -a client_secret -w   # macOS
    # secret-tool lookup service prisma-sase key client_secret           # Linux
-   # pass show prisma-sase/client-secret                                # pass
+   # pass show prisma-sase/client_secret                                # pass
    # op read "op://Private/prisma-sase/client secret"                   # 1Password
    ```
    (Store it first, e.g. macOS: `security add-generic-password -s
    prisma-sase -a client_secret -w`.) `--selfcheck` shows which source
    supplied the secret.
+
+   **This is the recommended fallback when the dialog is unavailable** — it
+   is the only option other than the dialog that keeps the secret out of a
+   plaintext file.
 
 *Plain environment variables* also work when your launch method reliably
 forwards them (starting the app from a terminal, a managed-device profile):
@@ -195,6 +214,118 @@ missing.
 
 It reports the interpreter, packages, env file, credentials, and any unexpanded
 `${...}` placeholders, ending with READY / NOT READY and the exact fix.
+
+## When the enable dialog never asked for anything
+
+**The symptom.** Every tool fails with *"Missing required context"* or
+*"Missing PRISMA_CLIENT_ID"*, you were never shown a form asking for the four
+values, and Settings → Plugins shows the credentials as rows of masked dots
+that look configured.
+
+⚠️ **Those masked dots are not evidence of anything.** The mask is
+fixed-width and content-independent — it renders identically for a 45-character
+Client ID and for an empty string. Do not conclude from that screen that
+credentials exist.
+
+**Confirm it in one command:**
+
+```bash
+~/.prisma-sase-venv/bin/python mcp/server.py --selfcheck
+```
+
+If the host is the cause, the report says so outright — `ENABLED but has NO
+configuration entry`, a `host env: WARNING -- set but EMPTY` line, and a
+`DIAGNOSIS:` line naming one of three kinds:
+
+| `kind` | What happened | What fixes it |
+|---|---|---|
+| `expanded_empty` | The host substituted `${user_config.*}` with **empty strings** — it never collected the values | Re-trigger the dialog; if it still doesn't appear, use the stopgap below |
+| `never_configured` | The host lists the plugin as enabled but holds **no configuration entry** for it | Same |
+| `unexpanded` | The host passed the literal `${user_config.*}` through — it cannot expand them at all | Update the host/plugin; use the stopgap meanwhile |
+
+In-conversation, `get_sase_status` reports the same verdict as
+`credentials_not_supplied` with `whose_fault: "host"`.
+
+**This is a host-side problem, not something you misconfigured.** No change to
+the plugin, the API key, or the tenant can populate values the host never
+collected. (Filed upstream:
+[BUG-REPORT-userconfig-dialog-never-shown.md](../BUG-REPORT-userconfig-dialog-never-shown.md).)
+
+### Step 1 — try to get the dialog to run (preferred)
+
+The dialog is worth another attempt first: it is the only path that keeps the
+Client Secret in OS secure storage with no file on disk.
+
+- **Claude Code CLI** — the most reliable way to force the prompt:
+  ```bash
+  /plugin uninstall prisma-sase-mac@prisma-sase    # match your OS variant
+  /plugin install prisma-sase-mac@prisma-sase      # should prompt for the four values
+  ```
+- **Claude Desktop / Cowork** — Settings → Plugins → disable the plugin, quit
+  **completely** (⌘Q — closing the window is not enough), reopen, then
+  re-enable it. Watch for the form as it enables.
+- **After either**, restart fully and re-run `--selfcheck`. Success looks like
+  `plugin config: ... has client_id, region, tsg_id set via the enable dialog`.
+
+If the dialog appears, you are done — nothing else on this page is needed.
+
+### Step 2 — stopgap while the dialog is unavailable
+
+Use this when step 1 does not produce a form. **Prefer the keychain route** —
+it keeps the secret out of any file:
+
+```bash
+bash plugin/setup-keychain.sh
+```
+
+It stores the secret in your keychain and writes a `~/.prisma-sase.env`
+containing only the three non-secret values plus a `PRISMA_SECRET_CMD` line.
+Then restart the app completely.
+
+Plain env file (simplest, but the secret lands on disk in plaintext):
+
+```bash
+# ~/.prisma-sase.env  -- chmod 600
+PRISMA_CLIENT_ID=apikey@1234567890.iam.panserviceaccount.com
+PRISMA_CLIENT_SECRET=...
+PRISMA_TSG_ID=1234567890
+PRISMA_REGION=sg
+```
+
+Verify with `--selfcheck` (expect `RESULT: READY (live mode)`), then restart.
+
+### How the two coexist — this is not dual configuration
+
+The env file **fills gaps**; it does not run alongside the dialog. Resolution
+order is fixed:
+
+```
+1. environment  (what the host injects -- includes the enable dialog)
+2. env file     (only for values step 1 did not supply)
+3. PRISMA_SECRET_CMD  (only if the secret is still unset)
+```
+
+An empty string from the host counts as *not supplied*, which is exactly why
+the env file rescues this bug. And when the dialog starts working, its values
+**automatically take precedence** — you do not need to undo anything for the
+plugin to start using them again.
+
+### Step 3 — clean up once the dialog works
+
+Do this rather than leaving both in place. A file nobody maintains is a stale
+credential waiting to be found:
+
+1. Delete the three credential lines (`PRISMA_CLIENT_ID`,
+   `PRISMA_CLIENT_SECRET`, `PRISMA_TSG_ID`) and `PRISMA_REGION` from
+   `~/.prisma-sase.env`. **Keep any tuning variables** (`PRISMA_INSIGHTS_MAP`,
+   `PRISMA_FILTER_*`, …) — the dialog does not cover those and the file
+   remains their home.
+2. Using the keychain route? `bash plugin/setup-keychain.sh --remove` deletes
+   the stored secret as well.
+3. If a plaintext secret was ever on disk, **rotate it in SCM** — deleting the
+   file does not undo the exposure.
+4. `--selfcheck` audits leftovers: it flags any `~/.prisma-sase*.env` readable
+   beyond you, and forgotten look-alike copies the plugin never reads.
 
 ## First run against a real tenant
 

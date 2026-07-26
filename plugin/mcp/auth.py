@@ -90,9 +90,14 @@ class AuthManager:
                    "PRISMA_SECRET_CMD. These are deliberately NOT tool "
                    "parameters: credentials must never travel through the "
                    "conversation.")
-            ph = config.placeholder_hint()
-            if ph:
-                msg += " " + ph
+            # A host-side gap outranks the generic advice above: telling
+            # someone to "fill in the enable dialog" is useless when the
+            # dialog is exactly what never ran. userconfig_diagnosis()
+            # subsumes placeholder_hint() (its "unexpanded" case).
+            diag = config.userconfig_diagnosis()
+            if diag:
+                msg = ("Missing PRISMA_CLIENT_ID / PRISMA_CLIENT_SECRET. "
+                       + diag["message"])
             raise AuthError(msg)
         # Basic header built by hand so the secret never lands in a log/URL.
         raw = "{0}:{1}".format(config.CLIENT_ID, config.CLIENT_SECRET).encode("utf-8")

@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Read-only Prisma SASE (Prisma Access) AI-assistant tools: MCP server + ops Skill. One code tree, three OS-specific catalog entries — install the one matching your OS.",
-    "version": "0.8.7"
+    "version": "0.8.8"
   },
   "plugins": [
     {

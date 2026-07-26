@@ -87,9 +87,12 @@ def _require_ctx(tsg, region):
                 "set the environment variable(s) -- on macOS, GUI apps often "
                 "do NOT inherit launchctl setenv variables. Or run with "
                 "PRISMA_MOCK=1 to try the tool offline.")
-        ph = config.placeholder_hint()
-        if ph:
-            hint = ph + " " + hint
+        # When the host is the cause, lead with that -- the generic advice
+        # above points at a dialog that may be exactly what never ran.
+        # userconfig_diagnosis() subsumes placeholder_hint().
+        diag = config.userconfig_diagnosis()
+        if diag:
+            hint = diag["message"]
         raise SaseApiError("Missing required context: " + ", ".join(missing),
                            hint=hint)
 
