@@ -98,6 +98,13 @@ OS 安裝 **prisma-sase-mac**、**prisma-sase-linux** 或 **prisma-sase-windows*
 更多細節、selfcheck 與疑難排解請見:[`plugin/README.md`](plugin/README.md)
 (英文)。
 
+> **從來沒被問過那四個值?** 有些 host 會在**沒有跑設定表單**的情況下就啟用
+> plugin —— 結果是每個工具都因為缺憑證而失敗,但 Settings 畫面上憑證顯示為
+> 一排遮罩圓點、**看起來像已經設定好了**(那個遮罩是固定長度,空值也長一樣,
+> 不能當作有值的證據)。執行 `mcp/server.py --selfcheck`,它會直接指出原因。
+> 補救順序 —— **先想辦法讓表單重跑**,不行才用 keychain 或憑證檔頂著 ——
+> 見 [When the enable dialog never asked for anything](plugin/README.md#when-the-enable-dialog-never-asked-for-anything)(英文)。
+
 ## 產生 API Key(建立唯讀 Service Account)
 
 Prisma SASE 的「API key」就是一組 Service Account 的 **Client ID + Client

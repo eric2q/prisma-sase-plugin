@@ -145,7 +145,18 @@ def _selfcheck():
     # selfcheck cannot see them. Say so loudly, or the "MISSING" line above
     # gets read as "the user never configured the plugin" (it did, once).
     _pcfg = config.plugin_config_snapshot()
-    if _pcfg:
+    # enabled_but_unconfigured is the opposite of "configured" -- it must never
+    # take the reassuring branch below, or selfcheck reproduces the very
+    # false-positive the settings UI already gives (masked dots for values that
+    # do not exist).
+    _configured = bool(_pcfg) and not _pcfg.get("enabled_but_unconfigured")
+    if _pcfg and _pcfg.get("enabled_but_unconfigured"):
+        print("  plugin config: %s is ENABLED but has NO configuration entry "
+              "in\n                 %s -- the enable dialog never collected "
+              "anything.\n                 (Host issue: see the diagnosis "
+              "below.)"
+              % (_pcfg["plugin_id"], _pcfg["settings_path"]))
+    elif _pcfg:
         print("  plugin config: %s has %s set via the enable dialog"
               % (_pcfg["plugin_id"], ", ".join(_pcfg["keys"]) or "no options"))
         if d["missing"]:
@@ -180,6 +191,12 @@ def _selfcheck():
         print("                %s" % config.placeholder_hint())
     else:
         print("  placeholders: none detected")
+    if d["empty_from_host"]:
+        print("  host env:     WARNING -- set but EMPTY: %s"
+              % ", ".join(d["empty_from_host"]))
+    _diag = d["userconfig_diagnosis"]
+    if _diag:
+        print("  DIAGNOSIS:    [%s] %s" % (_diag["kind"], _diag["message"]))
 
     if missing_pkgs:
         req = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -194,7 +211,11 @@ def _selfcheck():
     if d["mock_mode"]:
         print("\nRESULT: READY (mock mode -- no live API calls)")
         return 0
-    if d["missing"] and _pcfg and not d["unexpanded_placeholders"]:
+    if d["missing"] and _diag:
+        print("\nRESULT: NOT READY -- the HOST did not supply credentials.\n"
+              "  %s" % _diag["message"])
+        return 1
+    if d["missing"] and _configured and not d["unexpanded_placeholders"]:
         print("\nRESULT: DEPENDENCIES READY; credentials not visible from this "
               "shell.\n  The plugin IS configured via the enable dialog (%s). "
               "Those values only\n  reach the MCP server process, so this "
@@ -389,8 +410,15 @@ def main():
         log.warning("literal ${...} placeholders received for %s -- %s",
                     ", ".join(d["unexpanded_placeholders"]),
                     config.placeholder_hint())
+    if d["empty_from_host"]:
+        log.warning("the host set these to EMPTY strings: %s",
+                    ", ".join(d["empty_from_host"]))
     if config.MOCK_MODE:
         log.info("Starting in MOCK mode (PRISMA_MOCK set) -- no live API calls.")
+    elif d["userconfig_diagnosis"]:
+        log.warning("CREDENTIALS NOT SUPPLIED BY THE HOST [%s] -- %s",
+                    d["userconfig_diagnosis"]["kind"],
+                    d["userconfig_diagnosis"]["message"])
     elif d["missing"]:
         log.warning("Missing env vars %s -- live calls will return actionable "
                     "errors until these are set. Set PRISMA_MOCK=1 to demo "

@@ -104,6 +104,13 @@ script) is the fallback for cloud sessions, CI, and hosts without the dialog
 cover. Restart the Claude app afterwards. Full details, selfcheck and troubleshooting:
 [`plugin/README.md`](plugin/README.md).
 
+> **Never got asked for the four values?** Some hosts enable a plugin without
+> ever running its configuration dialog — every tool then fails for missing
+> credentials while Settings shows masked dots that *look* configured. Run
+> `mcp/server.py --selfcheck`: it names the cause. Recovery (re-trigger the
+> dialog first; keychain or env-file stopgap if that fails) is in
+> [When the enable dialog never asked for anything](plugin/README.md#when-the-enable-dialog-never-asked-for-anything).
+
 ## Getting the API key (read-only service account)
 
 Prisma SASE's "API key" is a **service account's Client ID + Client Secret**,

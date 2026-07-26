@@ -73,6 +73,24 @@ def get_sase_status(tsg_id=None, region=None):
     headline, checks = _headline(sections)
     out = {"ok": True, "plugin_version": config.PLUGIN_VERSION,
            "headline": headline, "checks": checks, "sections": sections}
+    # When every check failed for the same host-side reason, say it once at the
+    # top. Desktop users reach only the tools, so a per-section hint repeated
+    # four times is the whole story they get -- and "4/4 checks failed" reads
+    # like a tenant outage rather than "no credentials were ever collected".
+    diag = config.userconfig_diagnosis()
+    if diag and checks["failed"]:
+        out["credentials_not_supplied"] = {
+            "kind": diag["kind"],
+            "detail": diag["message"],
+            "whose_fault": "host",
+            "action": ("Do not debug the tenant or the plugin: no credentials "
+                       "reached this server. Relay the detail above to the "
+                       "user verbatim."),
+        }
+        out["headline"] = (
+            "UNKNOWN: no credentials reached the plugin (%s) -- tenant status "
+            "cannot be determined. This is a host configuration problem, not "
+            "a tenant problem." % diag["kind"])
     stale = config.stale_version_check()
     if stale:
         # The host kept an old server process alive across an update, so this

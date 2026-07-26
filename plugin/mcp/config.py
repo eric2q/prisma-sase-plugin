@@ -37,7 +37,7 @@ import sys
 # in-conversation. MUST be bumped in lockstep with .claude-plugin/
 # marketplace.json (all three entries); tools/build-standalone.py fails the
 # build on a mismatch, and PUBLISHING.md documents the step.
-PLUGIN_VERSION = "0.8.7"
+PLUGIN_VERSION = "0.8.8"
 
 # --- Fixed, verified facts (design doc sec.3 -- do NOT change) ---------------
 AUTH_URL = "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
@@ -122,6 +122,15 @@ PLACEHOLDER_VARS = []   # names whose value arrived as a literal ${...}
 ENV_FILE_USED = None    # path of the env file actually loaded, if any
 ENV_FILE_KEYS = []      # keys adopted from that file
 ENV_FILE_MISSING = None # $PRISMA_ENV_FILE was set but no such file exists
+# v0.8.8: names the host SET but set to "". Distinct from absent, and the
+# signature of the enable dialog never having run: the host understood
+# ${user_config.x} well enough to substitute it, and substituted nothing.
+# An absent variable means nobody tried; an empty one means the host tried
+# and had no value to give. Only the second implicates the dialog, so the
+# two must not be collapsed (they were, before this release -- both simply
+# read as "missing credentials", which sent a live report chasing the
+# plugin instead of the host).
+EMPTY_VARS = []
 
 
 def _is_placeholder(value):
@@ -129,13 +138,22 @@ def _is_placeholder(value):
 
 
 def _raw_env(name):
-    """Read an env var; a literal ``${...}`` value counts as unset (recorded)."""
+    """Read an env var; literal ``${...}`` or ``""`` counts as unset (recorded).
+
+    Both cases return None so downstream resolution (env file, secret cmd) is
+    unaffected -- but each is recorded first, because *why* a value is absent
+    is the whole diagnosis. See EMPTY_VARS / PLACEHOLDER_VARS.
+    """
     value = os.environ.get(name)
     if value is None:
         return None
     if _is_placeholder(value):
         if name not in PLACEHOLDER_VARS:
             PLACEHOLDER_VARS.append(name)
+        return None
+    if value.strip() == "":
+        if name not in EMPTY_VARS:
+            EMPTY_VARS.append(name)
         return None
     return value
 
@@ -490,6 +508,15 @@ def plugin_config_snapshot():
     ``pluginConfigs["<plugin>@<marketplace>"].options``; the secret is not
     there by design (it is in the OS secure storage). Only KEY NAMES are
     returned for anything secret-ish -- never values.
+
+    v0.8.8: also reports ``enabled_but_unconfigured`` -- the plugin appears in
+    ``enabledPlugins`` while ``pluginConfigs`` holds no entry for it. That
+    combination means the host activated the plugin without ever running the
+    userConfig collection flow, which is precisely the state a field report
+    hit on the Cowork marketplace-cache surface (enabled, no config entry,
+    ${user_config.*} expanded to empty strings, every tool failing). Returning
+    None for it -- as this used to -- threw away the one piece of evidence
+    that distinguishes "the dialog never ran" from "this host has no dialog".
     """
     path = os.path.expanduser("~/.claude/settings.json")
     try:
@@ -497,19 +524,107 @@ def plugin_config_snapshot():
             data = json.load(fh)
     except Exception:
         return None
+
+    enabled = data.get("enabledPlugins")
+    enabled_ids = ([k for k in enabled if "prisma-sase" in k]
+                   if isinstance(enabled, dict) else [])
+
     configs = data.get("pluginConfigs")
-    if not isinstance(configs, dict):
+    if isinstance(configs, dict):
+        for plugin_id, entry in configs.items():
+            if "prisma-sase" not in plugin_id:
+                continue
+            options = (entry or {}).get("options")
+            if not isinstance(options, dict):
+                continue
+            return {"plugin_id": plugin_id,
+                    "keys": sorted(k for k, v in options.items()
+                                   if v not in (None, "")),
+                    "settings_path": path,
+                    "enabled_but_unconfigured": False}
+
+    if enabled_ids:
+        return {"plugin_id": enabled_ids[0],
+                "keys": [],
+                "settings_path": path,
+                "enabled_but_unconfigured": True}
+    return None
+
+
+def userconfig_diagnosis():
+    """Explain a credential gap that the HOST caused, or None if it didn't.
+
+    Three host-side failure shapes, each with a different fix. Checked in
+    order of how specific the evidence is -- what actually arrived in this
+    process beats what settings.json implies, because settings.json is read
+    from any shell while the env vars are only meaningful in the
+    host-launched process:
+
+    * ``unexpanded`` -- literal ${...} arrived; the host does not support the
+      substitution at all. Checked FIRST: it is direct evidence from this
+      process, and its fix (upgrade the host) differs from the others.
+    * ``expanded_empty`` -- required vars arrived as empty strings. The host
+      understood ${user_config.*} and substituted nothing, so the enable
+      dialog never collected anything. Confirmed on the Cowork
+      marketplace-cache surface, where settings.json showed the plugin in
+      enabledPlugins with no pluginConfigs entry at all.
+    * ``never_configured`` -- neither of the above (typically a hand-run
+      shell, which sees none of the host's env), but settings.json says
+      enabled-with-no-config. Weakest evidence, so it is the last resort.
+
+    Returns None when credentials are fine or when the gap has a non-host
+    explanation, so callers can add this to an error without it ever becoming
+    noise on a healthy install.
+    """
+    required = ("PRISMA_CLIENT_ID", "PRISMA_CLIENT_SECRET", "PRISMA_TSG_ID",
+                "PRISMA_REGION")
+    if not missing_credentials():
         return None
-    for plugin_id, entry in configs.items():
-        if "prisma-sase" not in plugin_id:
-            continue
-        options = (entry or {}).get("options")
-        if not isinstance(options, dict):
-            continue
-        return {"plugin_id": plugin_id,
-                "keys": sorted(k for k, v in options.items()
-                               if v not in (None, "")),
-                "settings_path": path}
+
+    empty = [n for n in EMPTY_VARS if n in required]
+    snapshot = plugin_config_snapshot()
+    unconfigured = bool((snapshot or {}).get("enabled_but_unconfigured"))
+
+    fix = ("Fix: supply the four values another way -- ~/.prisma-sase.env "
+           "(chmod 600) or PRISMA_SECRET_CMD for the secret -- and fully "
+           "restart the app (Desktop: Cmd-Q; CLI: /reload-plugins). "
+           "PRISMA_MOCK=1 runs every tool offline meanwhile.")
+
+    if PLACEHOLDER_VARS:
+        return {
+            "kind": "unexpanded",
+            "vars": list(PLACEHOLDER_VARS),
+            "enabled_but_unconfigured": unconfigured,
+            "message": (placeholder_hint() or "") + " " + fix,
+        }
+    if empty:
+        return {
+            "kind": "expanded_empty",
+            "vars": list(empty),
+            "enabled_but_unconfigured": unconfigured,
+            "message": (
+                "The host set %s to EMPTY string(s). That means it expanded "
+                "${user_config.*} but had nothing to expand -- the plugin's "
+                "enable dialog never collected these values. This is a HOST "
+                "issue, not a plugin misconfiguration: nothing you change in "
+                "the plugin will populate them.%s %s"
+                % (", ".join(empty),
+                   (" Confirmed here: the host's settings.json lists this "
+                    "plugin as enabled but holds no configuration entry for "
+                    "it.") if unconfigured else "",
+                   fix)),
+        }
+    if unconfigured:
+        return {
+            "kind": "never_configured",
+            "vars": [],
+            "enabled_but_unconfigured": True,
+            "message": (
+                "The host's settings.json lists this plugin as ENABLED but "
+                "holds no configuration entry for it, so the enable dialog "
+                "never ran and no credentials were ever stored. This is a "
+                "HOST issue. " + fix),
+        }
     return None
 
 
@@ -521,6 +636,8 @@ def env_diagnostics():
         "mock_mode": MOCK_MODE,
         "missing": missing_credentials(),
         "unexpanded_placeholders": list(PLACEHOLDER_VARS),
+        "empty_from_host": list(EMPTY_VARS),
+        "userconfig_diagnosis": userconfig_diagnosis(),
         "env_file": ENV_FILE_USED,
         "env_file_keys": list(ENV_FILE_KEYS),
         "env_file_missing": ENV_FILE_MISSING,

@@ -1,7 +1,7 @@
 {
   "name": "prisma-sase-mac",
   "description": "Prisma SASE (Prisma Access) read-only tools + ops Skill: MCP server for alerts, tunnels, Mobile Users and ADEM. Shared manifest for the mac/linux/windows marketplace entries; the Windows entry overrides mcpServers to launch via cmd.",
-  "version": "0.8.7",
+  "version": "0.8.8",
   "author": {
     "name": "Eric (Solutions Consultant, Palo Alto Networks)"
   },

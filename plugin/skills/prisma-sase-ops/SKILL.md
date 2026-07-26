@@ -121,6 +121,9 @@ per-section `error`/`hint` says). The `checks` object gives the counts.
   the restart instruction from the `action` field (Desktop ⌘Q / CLI
   `/reload-plugins`) — don't let the user assume the update took effect, and
   don't debug behaviour that the newer version may already have fixed.
+- **`credentials_not_supplied` in a response** → see the dedicated section
+  below. It means no credentials ever reached the server and the cause is the
+  host — never present it as a tenant outage.
 
 ## Reading the `_verify` / `note` fields
 
@@ -134,6 +137,69 @@ Tool responses may include:
   window or limit can be adjusted.
 - `ok: false` with `error` + `hint` — relay the hint; it is written to be
   actionable (missing env var, wrong region, missing read-only role).
+
+## Runbook — the host never asked for credentials
+
+Triggered by `credentials_not_supplied` in a `get_sase_status` response, or by
+every tool failing with "Missing PRISMA_CLIENT_ID / Missing required context"
+while the user insists they installed the plugin correctly. **They did.** The
+host enabled the plugin without ever running its configuration dialog, so the
+credential variables arrived empty. Nothing about the tenant, the API key, or
+the plugin is wrong.
+
+**Lead with the attribution.** The user's most likely belief is that they
+broke something, or that their tenant is down. Correct both, in this order:
+
+1. **Say what happened, plainly.** No credentials reached the plugin because
+   the enable dialog never collected them. This is a host bug. Relay the
+   `detail` field verbatim — it names which variables arrived empty.
+2. **Pre-empt the settings screen.** If they check Settings → Plugins they
+   will see the credentials as masked dots and conclude they *are* configured.
+   Tell them first: that mask is fixed-width and renders identically for an
+   empty value, so it proves nothing.
+3. **Do not** send them to re-check the API key, the service account role, the
+   region, or the SASE console. None of those are implicated, and every one of
+   them is an expensive detour.
+
+The `kind` field says which shape it is: `expanded_empty` (host substituted
+nothing), `never_configured` (enabled with no config entry), `unexpanded`
+(host cannot substitute at all). Recovery is the same for all three.
+
+**Then walk the recovery, in this order:**
+
+**Step 1 — get the dialog to run (always offer this first).** It is the only
+path that keeps the Client Secret in OS secure storage with no file on disk.
+- Claude Code CLI: `/plugin uninstall prisma-sase-<os>@prisma-sase` then
+  `/plugin install prisma-sase-<os>@prisma-sase` — the reinstall should prompt.
+- Desktop / Cowork: Settings → Plugins → disable, quit **completely** (⌘Q —
+  closing the window is not enough), reopen, re-enable, and watch for the form.
+- Either way: full restart, then confirm. If they can run a terminal,
+  `--selfcheck` should now say `has ... set via the enable dialog`; otherwise
+  just call `get_sase_status` again.
+
+**Step 2 — stopgap, only if step 1 produced no form.** Recommend the keychain
+route, because it keeps the secret out of any file:
+```bash
+bash <plugin>/setup-keychain.sh
+```
+It prompts for the secret (hidden), stores it in the OS keychain, and writes a
+`~/.prisma-sase.env` holding only non-secret values plus `PRISMA_SECRET_CMD`.
+The plain env file (all four values, `chmod 600`) also works but puts the
+secret on disk in plaintext — say so when offering it. Full restart after.
+
+**Step 3 — tell them it is temporary.** When the dialog starts working its
+values take precedence automatically; nothing needs undoing for that to
+happen. But they should then delete the credential lines from the env file
+(keeping tuning variables like `PRISMA_INSIGHTS_MAP`), and **rotate the secret
+in SCM if it ever sat on disk in plaintext** — deleting a file does not undo
+the exposure.
+
+**Meanwhile**, `PRISMA_MOCK=1` runs every tool on sample data, which is enough
+for a demo or to show what the answers will look like.
+
+**Never** ask for, accept, or echo the Client Secret in the conversation — not
+even to "check" it. Every path above has the user enter it into a dialog, a
+hidden prompt, or a file they own. See the credential-handling rules below.
 
 ## Bootstrap runbook — when this Skill loaded but the MCP tools are absent
 
@@ -218,8 +284,18 @@ If no tools at all are present, bootstrap in ~2 minutes:
    **local env file** `~/.prisma-sase.env` (Windows:
    `%USERPROFILE%\.prisma-sase.env`, `chmod 600`), or (c) a secret store
    reached via **`PRISMA_SECRET_CMD`** (Keychain / secret-tool / pass /
-   1Password). Never suggest project folders, git repos, notes, shared
-   drives, or cloud storage.
+   1Password; `setup-keychain.sh` wires this up in one command). Never
+   suggest project folders, git repos, notes, shared drives, or cloud
+   storage.
+
+   These are **not equal choices** — recommend them in order: (a) always
+   first, since it needs no file at all; (c) when (a) is unavailable, since
+   it still keeps the secret out of a file; (b) last, because the secret
+   lands on disk in plaintext. When you do recommend (b), say that plainly
+   rather than presenting it as equivalent. They also do not run in
+   parallel: the server resolves environment → env file → `PRISMA_SECRET_CMD`
+   and stops at the first value, so the file only fills gaps and the dialog
+   silently wins once it works.
 2. **Never in the conversation.** Do not ask for, accept, or echo
    `PRISMA_CLIENT_SECRET` (or full env-file contents) in chat — the tools
    take no credential parameters by design. If a user starts pasting a
