@@ -46,7 +46,55 @@ INSIGHTS_QUERY_PATH = "/insights/v3.0/resource/query/{resource}/{view}"
 ADEM_BASE_PATH = "/adem/telemetry/v2"
 
 
-def insights_path(resource, view=None):
+# --- Query API families (issue #15) ------------------------------------------
+# Insights 3.0 is the default and covers every live-verified view
+# (applications, users, tunnels, alerts aggregate).
+#
+# The per-alert severity resource ``prisma_sase_external_alerts_current`` is
+# NOT served by the 3.0 API. PANW documents it under the 2.0 API, which uses
+# BOTH a different path prefix AND a different host -- getting_started-20 says
+# outright that the 2.0 APIs "do not use the same FQDN as do the other Prisma
+# SASE APIs":
+#
+#   3.0: https://api.sase.paloaltonetworks.com   /insights/v3.0/resource/query/
+#   2.0: https://pa-<region>01.api.prismaaccess.com  /api/sase/v2.0/resource/query/
+#
+# Live probe 2026-07-26 (TSG 1166942142, region sg) proved the path alone is
+# not enough: 8 candidates under /insights/v3.0/ returned 400 DATA10003 (route
+# exists, name rejected) while 3 candidates under /api/sase/v2.0/ on the 3.0
+# host returned 404 (route not served there at all). The prefix and the base
+# URL must travel together.
+INSIGHTS_PREFIX = "/insights/v3.0/resource/query/"
+SASE_V2_PREFIX = "/api/sase/v2.0/resource/query/"
+
+QUERY_PREFIXES = {
+    "insights_v3": INSIGHTS_PREFIX,
+    "sase_v2": SASE_V2_PREFIX,
+}
+
+# Per-family base URL. ``{region}`` is substituted with the tenant's region
+# code (us, eu, uk, sg, ca, jp, au, de, in) -- the 2.0 host is regional.
+QUERY_BASES = {
+    "insights_v3": API_BASE,
+    "sase_v2": "https://pa-{region}01.api.prismaaccess.com",
+}
+DEFAULT_QUERY_PREFIX = "insights_v3"
+
+
+def query_base(prefix=None, region=None):
+    """Base URL (scheme + host) for a query API family.
+
+    Unknown/None prefix falls back to the 3.0 host so every existing caller is
+    unaffected. Region is only meaningful for the regional 2.0 host.
+    """
+    key = prefix or DEFAULT_QUERY_PREFIX
+    base = QUERY_BASES.get(key, API_BASE)
+    if "{region}" in base:
+        base = base.format(region=(region or "").strip().lower())
+    return base
+
+
+def insights_path(resource, view=None, prefix=None):
     """Query path for a resource/view pair OR a single-segment resource.
 
     Most Insights views are addressed as <resource>/<view>, but some official
@@ -54,8 +102,13 @@ def insights_path(resource, view=None):
     ``prisma_sase_external_alerts_current`` -- the per-alert severity view --
     is queried as /resource/query/prisma_sase_external_alerts_current with no
     view component.
+
+    ``prefix`` selects the API family: a key of QUERY_PREFIXES ("insights_v3",
+    "sase_v2") or a literal path prefix. Defaults to Insights 3.0. Pair it with
+    ``query_base(prefix, region)`` -- the 2.0 family needs its own host.
     """
-    base = "/insights/v3.0/resource/query/" + resource
+    key = prefix or DEFAULT_QUERY_PREFIX
+    base = QUERY_PREFIXES.get(key, key) + resource
     return base + "/" + view if view else base
 
 # --- v0.2.0: placeholder detection + env-file fallback -----------------------

@@ -163,7 +163,8 @@ class SaseClient:
 
     # -- Insights probe: query an explicit resource/view (read-only) -------
     def insights_probe(self, resource, view, filter_rules=None,
-                       properties=None, tsg_id=None, region=None):
+                       properties=None, tsg_id=None, region=None,
+                       prefix=None):
         """POST a query at an explicit resource/view (used by discovery).
 
         Same read-only query endpoint as insights_query -- no mapping lookup,
@@ -173,17 +174,21 @@ class SaseClient:
         not exist" (DATA10003/Invalid resource) from "view exists but a field
         name is wrong" (GCP10002/Unrecognized name). Omit to send the same
         filter-only shape the live-verified query tools use.
+        prefix: query API family ("insights_v3" default, "sase_v2"). Selects
+        the path prefix AND the host together -- they differ per family.
         """
         tsg = config.resolve_tsg(tsg_id)
         region = config.resolve_region(region)
         if config.MOCK_MODE:
             return mock_data.probe(resource, view)
         _require_ctx(tsg, region)
-        path = config.insights_path(resource, view)
+        path = config.insights_path(resource, view, prefix=prefix)
+        base = config.query_base(prefix, region)
         body = {"filter": {"rules": filter_rules or []}}
         if properties is not None:
             body["properties"] = properties
-        return self._request("POST", path, tsg, region, json_body=body)
+        return self._request("POST", path, tsg, region, json_body=body,
+                             base=base)
 
     # -- ADEM (read-only GET) ---------------------------------------------
     def adem_get(self, subpath, params=None, tsg_id=None, region=None):
@@ -198,8 +203,13 @@ class SaseClient:
         return self._request("GET", path, tsg, region, json_body=None)
 
     # -- core request with retry ------------------------------------------
-    def _request(self, method, path, tsg, region, json_body=None, _attempt=0):
-        url = config.API_BASE + path
+    def _request(self, method, path, tsg, region, json_body=None, _attempt=0,
+                 base=None):
+        # ``base`` overrides the default 3.0 host. The 2.0 query family lives
+        # on a regional pa-<region>01.api.prismaaccess.com host (issue #15);
+        # sending its path to API_BASE returns a bare 404.
+        api_base = base or config.API_BASE
+        url = api_base + path
         token = self._auth.get_token(tsg)
         headers = _headers(token, tsg, region, json_body is not None)
         try:
@@ -207,21 +217,23 @@ class SaseClient:
                                  timeout=config.HTTP_TIMEOUT)
         except httpx.HTTPError as e:
             raise SaseApiError("Request to %s failed: %s" % (path, e),
-                               hint="Check network reachability to " + config.API_BASE) from e
+                               hint="Check network reachability to " + api_base) from e
 
         # 401 -> refresh token once, then retry.
         if resp.status_code == 401 and _attempt == 0:
             log.info("401 on %s -- refreshing token and retrying once.", path)
             self._auth.invalidate(tsg)
             self._auth.get_token(tsg, force=True)
-            return self._request(method, path, tsg, region, json_body, _attempt=1)
+            return self._request(method, path, tsg, region, json_body,
+                                 _attempt=1, base=base)
 
         # 429 -> bounded backoff.
         if resp.status_code == 429 and _attempt < 3:
             wait = _retry_after(resp, _attempt)
             log.info("429 on %s -- backing off %.1fs.", path, wait)
             time.sleep(wait)
-            return self._request(method, path, tsg, region, json_body, _attempt=_attempt + 1)
+            return self._request(method, path, tsg, region, json_body,
+                                 _attempt=_attempt + 1, base=base)
 
         if resp.status_code == 403:
             raise SaseApiError(
