@@ -284,6 +284,70 @@ class SecretHandling(unittest.TestCase):
         self.assertEqual(out.stdout.decode().strip(), "CLEAN")
 
 
+class QueryApiFamilyRouting(unittest.TestCase):
+    """Issue #15: the 2.0 query API needs its own HOST, not just its own path.
+
+    Symptom: the first fix changed only the path prefix to
+    /api/sase/v2.0/resource/query/ while the client still prepended
+    API_BASE (api.sase.paloaltonetworks.com). Every probe came back a bare
+    404 -- the 2.0 routes are served from pa-<region>01.api.prismaaccess.com.
+    A path-only fix must not pass these tests.
+    """
+
+    def test_default_family_is_unchanged(self):
+        # Existing callers pass no prefix and must keep hitting 3.0.
+        self.assertEqual(
+            config.insights_path("applications", "application_list"),
+            "/insights/v3.0/resource/query/applications/application_list")
+        self.assertEqual(config.query_base(None, "sg"), config.API_BASE)
+
+    def test_sase_v2_uses_the_regional_prismaaccess_host(self):
+        base = config.query_base("sase_v2", "sg")
+        self.assertEqual(base, "https://pa-sg01.api.prismaaccess.com")
+        self.assertNotIn("api.sase.paloaltonetworks.com", base,
+                         "the 2.0 family must NOT resolve to the 3.0 host -- "
+                         "that is the 404 this issue was about")
+
+    def test_region_is_substituted_per_tenant(self):
+        for region in ("us", "eu", "uk", "de", "jp"):
+            self.assertEqual(config.query_base("sase_v2", region),
+                             "https://pa-%s01.api.prismaaccess.com" % region)
+
+    def test_sase_v2_path_has_no_view_segment(self):
+        self.assertEqual(
+            config.insights_path("prisma_sase_external_alerts_current",
+                                 "", prefix="sase_v2"),
+            "/api/sase/v2.0/resource/query/prisma_sase_external_alerts_current")
+
+    def test_probe_candidates_may_carry_a_family(self):
+        from tools.discover import CANDIDATES
+        v2 = [c for c in CANDIDATES if len(c) > 3 and c[3] == "sase_v2"]
+        self.assertTrue(v2, "expected sase_v2 alerts_detail candidates")
+        # Mixed 3- and 4-tuples must both survive the unpacking loop.
+        self.assertTrue(any(len(c) == 3 for c in CANDIDATES))
+
+    def test_the_2_0_family_has_its_own_control_probe(self):
+        """Without a control on the 2.0 host, an all-DATA10003 result cannot
+        distinguish 'wrong resource names' from 'this tenant does not serve
+        the 2.0 query family at all' -- the two read identically."""
+        from tools.discover import CANDIDATES
+        ctrl = [c for c in CANDIDATES
+                if c[0] == "control_sase_v2" and len(c) > 3
+                and c[3] == "sase_v2"]
+        self.assertTrue(ctrl, "expected a sase_v2 control probe")
+        # It must reuse the documented resource that is known-good on 3.0, so
+        # a failure indicts the family rather than the name.
+        self.assertEqual((ctrl[0][1], ctrl[0][2]),
+                         ("applications", "application_list"))
+
+    def test_controls_are_not_selectable_as_a_kind(self):
+        """Controls run alongside every kind; they are not user-facing kinds."""
+        from tools.discover import discover_insights
+        res = discover_insights(kind="control_sase_v2")
+        self.assertFalse(res["ok"])
+        self.assertIn("Unknown kind", res["error"])
+
+
 class VersionLockstep(unittest.TestCase):
     """PUBLISHING.md requires config.PLUGIN_VERSION == all marketplace entries."""
 

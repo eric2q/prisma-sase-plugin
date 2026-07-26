@@ -34,6 +34,12 @@ from client import SaseClient, SaseApiError, records_of
 CANDIDATES = [
     # control -- documented, should work if auth/region/payload are right
     ("control",         "applications",    "application_list"),
+    # Issue #15 control for the OTHER family: the same documented resource,
+    # sent to the 2.0 host/prefix. Without this, a DATA10003 on every sase_v2
+    # candidate is ambiguous -- "the names are wrong" and "this tenant does
+    # not serve the 2.0 query family at all" look identical. If this control
+    # succeeds, the family is reachable and only names remain unknown.
+    ("control_sase_v2", "applications",    "application_list", "sase_v2"),
     # alerts (aggregate view -- counts by MU/RN/SC)
     ("alerts",          "alerts",          "alerts_list"),
     # alerts detail -- PANW guidance (2026-07-24): the per-alert view with
@@ -52,6 +58,14 @@ CANDIDATES = [
     ("alerts_detail",   "prisma_sase_external_alerts_history", ""),
     ("alerts_detail",   "alerts",          "external_alerts_current"),
     ("alerts_detail",   "alerts",          "prisma_sase_external_alerts_current"),
+    # Issue #15: every candidate above holds the /insights/v3.0/ prefix fixed,
+    # and all of them return DATA10003 on the sg tenant. PANW documents the
+    # per-alert severity resource under the 2.0 query API instead -- which is a
+    # different prefix AND a different (regional) host. A 4th tuple element
+    # selects the family; see config.QUERY_PREFIXES / QUERY_BASES.
+    ("alerts_detail",   "prisma_sase_external_alerts_current", "", "sase_v2"),
+    ("alerts_detail",   "prisma_sase_external_alerts", "", "sase_v2"),
+    ("alerts_detail",   "prisma_sase_external_alerts_history", "", "sase_v2"),
     # connected users -- users/users_list live-verified;
     # users/all/user_list_all is named in PANW guidance
     ("connected_users", "users",           "users_list"),
@@ -118,13 +132,14 @@ def _failure_rank(status):
 
 def discover_insights(kind=None, tsg_id=None, region=None):
     """Probe candidates (optionally one kind) and report what this tenant accepts."""
-    valid_kinds = sorted({c[0] for c in CANDIDATES if c[0] != "control"})
+    controls = {"control", "control_sase_v2"}
+    valid_kinds = sorted({c[0] for c in CANDIDATES if c[0] not in controls})
     if kind not in (None, "") and kind not in valid_kinds:
         return {"ok": False,
                 "error": "Unknown kind '%s'. Valid kinds: %s"
                          % (kind, ", ".join(valid_kinds))}
     wanted = [c for c in CANDIDATES
-              if kind in (None, "") or c[0] in (kind, "control")]
+              if kind in (None, "") or c[0] == kind or c[0] in controls]
 
     client = SaseClient()
     time_rules = [{"property": config.FILTER_PROP_TIME,
@@ -144,15 +159,24 @@ def discover_insights(kind=None, tsg_id=None, region=None):
         ("time_filter_no_properties", None, time_rules),
     )
 
-    for probe_kind, resource, view in wanted:
+    for candidate in wanted:
+        # 3-tuple = default Insights 3.0 family; 4-tuple names another family.
+        probe_kind, resource, view = candidate[0], candidate[1], candidate[2]
+        prefix = candidate[3] if len(candidate) > 3 else None
         entry = {"kind": probe_kind, "resource": resource, "view": view}
+        if prefix:
+            entry["prefix_key"] = prefix
+            entry["prefix"] = config.QUERY_PREFIXES.get(prefix, prefix)
+            entry["base"] = config.query_base(
+                prefix, config.resolve_region(region))
         outcome = None
         best_failure = None   # keep the most informative failure across variants
         for variant, props, rules in variants:
             try:
                 raw = client.insights_probe(resource, view, filter_rules=rules,
                                             properties=props,
-                                            tsg_id=tsg_id, region=region)
+                                            tsg_id=tsg_id, region=region,
+                                            prefix=prefix)
             except SaseApiError as e:
                 failure = {"status": _classify_failure(e), "error": str(e)}
                 if e.api_code:
@@ -170,14 +194,36 @@ def discover_insights(kind=None, tsg_id=None, region=None):
             break
         entry.update(outcome or best_failure or {"status": "error"})
         probes.append(entry)
-        if entry["status"] == "ok" and probe_kind != "control":
+        if entry["status"] == "ok" and probe_kind not in controls:
             working.setdefault(probe_kind, []).append(entry)
         elif entry["status"] == "exists_field_mismatch":
             field_mismatches.append(entry)
 
     control_ok = any(p["kind"] == "control" and p["status"] == "ok" for p in probes)
+    # Issue #15: was the 2.0 query family itself reachable? Only meaningful
+    # when a sase_v2 probe actually ran (i.e. the alerts_detail kind).
+    v2_probes = [p for p in probes if p["kind"] == "control_sase_v2"]
+    control_sase_v2_ok = (any(p["status"] == "ok" for p in v2_probes)
+                          if v2_probes else None)
 
     notes = []
+    if v2_probes and not config.MOCK_MODE:
+        v2_base = v2_probes[0].get("base", "the 2.0 host")
+        if control_sase_v2_ok:
+            notes.append(
+                "2.0 QUERY FAMILY REACHABLE: the documented "
+                "applications/application_list probe succeeded on %s. Auth and "
+                "routing to that host are fine, so a DATA10003 on the other 2.0 "
+                "candidates means only the RESOURCE NAME is still unknown."
+                % v2_base)
+        else:
+            notes.append(
+                "2.0 QUERY FAMILY NOT USABLE on this tenant: even the "
+                "documented applications/application_list probe failed on %s. "
+                "Every other 2.0 failure is therefore inconclusive about names "
+                "-- this tenant/service account may simply not serve the 2.0 "
+                "query API. Do not read those DATA10003s as 'wrong name'."
+                % v2_base)
     if not control_ok and not config.MOCK_MODE:
         notes.append(
             "CONTROL FAILED: even the documented applications/application_list "
@@ -220,6 +266,10 @@ def discover_insights(kind=None, tsg_id=None, region=None):
             payload = "time_filter"
         suggested[k] = {"resource": best["resource"], "view": best["view"],
                         "verified": True, "payload": payload}
+        # A non-default API family must be carried into the adopted mapping --
+        # the resource name alone would be queried on the wrong host (#15).
+        if best.get("prefix_key"):
+            suggested[k]["prefix"] = best["prefix_key"]
     if matches_default:
         notes.append(
             "Already the shipped defaults (no PRISMA_INSIGHTS_MAP needed): %s "
@@ -247,10 +297,14 @@ def discover_insights(kind=None, tsg_id=None, region=None):
 
     return {"ok": True,
             "control_probe_ok": control_ok,
+            # None when no 2.0-family probe ran for this kind.
+            "control_sase_v2_ok": control_sase_v2_ok,
             "probes": probes,
             "working": {k: [{"resource": e["resource"], "view": e["view"],
                              "payload_variant": e["payload_variant"],
-                             "record_count": e["record_count"]}
+                             "record_count": e["record_count"],
+                             **({"prefix_key": e["prefix_key"]}
+                                if e.get("prefix_key") else {})}
                             for e in v] for k, v in working.items()},
             "matches_shipped_defaults": sorted(matches_default),
             "suggested_insights_map": suggested,
