@@ -72,18 +72,99 @@ Then tell the team the repo slug — that's all they need for
 A plugin's MCP launch command is a single string, and no command exists on all
 three OSes (`bash` is missing on Windows; `cmd` is missing on macOS/Linux).
 The marketplace catalog solves this: all three entries (`prisma-sase-mac`,
-`prisma-sase-linux`, `prisma-sase-windows`) point at the same `./plugin` source
-with `"strict": false`, and each entry carries its own `mcpServers` launch
-config (`bash mcp/run.sh` for mac/linux vs `cmd /c mcp\run.cmd` for Windows).
-One push updates all three. Do not add a `.mcp.json` or `.claude-plugin/plugin.json`
-back into `plugin/` — under `strict: false` a component-declaring manifest
-inside the plugin would conflict with the catalog entries.
+`prisma-sase-linux`, `prisma-sase-windows`) point at the same `./plugin`
+source, and Windows overrides `mcpServers` with `cmd /c mcp\run.cmd`. One push
+updates all three.
+
+**Everything else belongs in `plugin/.claude-plugin/plugin.json`, not in the
+entries.** That manifest is the single source of truth for `userConfig`, the
+default bash launcher, and the version. The entries carry only per-OS
+presentation (`name` / `description` / `keywords`) plus the Windows launcher.
+
+This is not a style preference — it is the fix for the 0.8.7 credential bug.
+A marketplace install reads `marketplace.json`; a `--plugin-dir` session reads
+**only** the manifest and never sees the catalog at all. Anything declared
+solely in an entry silently does not exist on the sideload path. Through 0.8.6
+`userConfig` lived only in the entries and there was no manifest, so every
+sideloaded session passed the literal string `${user_config.client_id}` to the
+server and every tool failed for want of credentials. Declaring it in the
+manifest makes both paths agree.
+
+(Consequence: the entries are `"strict": true`, the default. Under
+`strict: false` a component-declaring manifest inside the plugin is a
+documented conflict, so keeping both was never an option.)
 
 The lockstep rule is machine-enforced: `tools/build-standalone.py` fails if
 the three entries differ on anything other than `name` / `description` /
-`keywords` / `mcpServers`, or if the mac and linux entries stop sharing an
-identical bash launcher. When adding a new field (e.g. `userConfig`), add it
-to all three entries in the same edit — the build check will catch a miss.
+`keywords` / `mcpServers`, if mac or linux re-introduces an `mcpServers`
+override, if Windows loses one, or if any entry re-introduces a `version`.
+`tools/test-regressions.py` additionally fails if the manifest stops declaring
+`userConfig`, if any `${user_config.*}` names an undeclared key, or if
+`client_secret` loses `sensitive: true`.
+
+## Testing a build locally (`--plugin-dir`) — the `@inline` trap
+
+`claude --plugin-dir ./plugin` is the fastest way to exercise a change, but it
+is **not** the same load path as a marketplace install, and the difference
+will waste an afternoon if you do not know it:
+
+```bash
+claude --plugin-dir /path/to/repo/plugin        # sideload; reads plugin.json only
+```
+
+A sideloaded plugin gets a synthetic marketplace named `inline`, so its
+identity is **`prisma-sase-mac@inline`** — not `prisma-sase-mac`, and not the
+`prisma-sase-mac@prisma-sase` that the marketplace install uses. Your normal
+credentials in `~/.claude/settings.json` are filed under the marketplace id
+and will **not** be found.
+
+The failure mode is nasty: an unrecognised `pluginConfigs` key produces no
+warning. Substitution just resolves to an empty string, so the server starts
+happily and every tool reports missing credentials — which looks identical to
+"the plugin is broken."
+
+To supply credentials to a sideloaded session, use a settings file keyed on
+`@inline`:
+
+```json
+{
+  "pluginConfigs": {
+    "prisma-sase-mac@inline": {
+      "options": {
+        "client_id": "…",
+        "client_secret": "…",
+        "tsg_id": "…",
+        "region": "…"
+      }
+    }
+  }
+}
+```
+
+```bash
+claude --plugin-dir /path/to/repo/plugin --settings ~/.prisma-sase-dev.json
+```
+
+> **The secret is plaintext here.** Sideloading never shows the enable dialog
+> (the plugin is auto-enabled and never prompts), so there is no path that
+> writes to the Keychain. `chmod 600` the file, keep it **outside the repo**,
+> and never commit it. If you would rather not have a plaintext secret at all,
+> leave `client_secret` out and let the server pick it up from
+> `~/.prisma-sase.env` / `PRISMA_SECRET_CMD` instead.
+
+To verify a change actually binds — without printing any credential:
+
+```bash
+claude --plugin-dir /path/to/repo/plugin --settings ~/.prisma-sase-dev.json mcp list
+```
+
+`✔ Connected` only proves the process started. To prove the *values* arrived,
+have `run.sh` report presence and length (never the value) on first line, or
+check `plugin_version` and the credential status via `get_sase_status`.
+
+`@inline` is not in the Claude Code docs — it is inferred from the
+`~/.claude/plugins/data/<name>-inline/` directory and confirmed empirically on
+2.1.219. Re-check it if a future release changes sideload identity.
 
 ## Standalone .plugin files (optional)
 
@@ -94,13 +175,20 @@ build the classic file-upload packages:
 python3 tools/build-standalone.py        # writes dist/prisma-sase-{mac,linux,windows}.plugin
 ```
 
-The script generates the per-OS `.mcp.json` + `plugin.json` on the fly from
-`marketplace.json`, so versions never drift between the two install paths.
+Each bundle starts from the real `plugin/.claude-plugin/plugin.json` and
+overlays only the per-OS name/description/keywords and, for Windows, the
+launcher. That is deliberate: synthesising a manifest from `marketplace.json`
+(as this did through 0.8.6) shipped bundles with **no `userConfig`**, so the
+file-upload install had the same credential failure as the sideload path.
 
 ## Release checklist
 
 - [ ] `PRISMA_MOCK=1 ... --selfcheck` passes
+- [ ] `python3 tools/test-regressions.py` passes
+- [ ] `claude plugin validate ./plugin && claude plugin validate .` both pass
+- [ ] `python3 tools/build-standalone.py && rm -rf dist` succeeds (version + entry drift check)
 - [ ] `plugin/CHANGELOG.md` updated
-- [ ] `marketplace.json` version bumped in **all three** entries
-- [ ] no secrets anywhere in the tree (`git grep -iE "client_secret\s*=" -- ':!*.md'` should find only code reading env vars)
-- [ ] push, then verify update appears on one team machine before announcing
+- [ ] version bumped in **three** places: `plugin/.claude-plugin/plugin.json`, `metadata.version`, `config.PLUGIN_VERSION` (entries carry none)
+- [ ] no secrets anywhere in the tree (`git grep -iE "client_secret\s*=" -- ':!*.md'` should find only code reading env vars), and no dev settings file committed
+- [ ] push, then **re-clone from GitHub** and re-run the checks there — the 0.8.7 bug was an untracked file that passed every local check
+- [ ] verify the update appears on one team machine before announcing
