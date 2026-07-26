@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.8.7 — 2026-07-27
+
+The enable dialog silently supplied nothing when the plugin was **sideloaded**
+(`--plugin-dir`), which is how Claude Desktop's local-agent sessions load it.
+Marketplace installs were unaffected, so this hid behind a path that works.
+
+- **FIX (credentials, high):** `userConfig` and `mcpServers` were declared
+  **only in the marketplace entry**, and the plugin shipped no
+  `plugin/.claude-plugin/plugin.json`. Under `--plugin-dir`, Claude Code reads
+  that manifest and never sees `marketplace.json`, so the four
+  `${user_config.*}` placeholders had no schema to bind to and were passed to
+  the MCP server **verbatim** — confirmed by reading the running server's
+  environment, which held the literal string `${user_config.client_id}` and
+  three like it. `_is_placeholder` caught them (so the literal was never sent
+  to the auth API as a secret, and the error named the cause), but every tool
+  failed with "Missing required context: PRISMA_TSG_ID". The manifest now
+  exists and declares both, so the dialog's values bind on **both** load
+  paths. This affects 0.8.0 (which introduced `userConfig`) through 0.8.6
+  identically — there is no version among them that works when sideloaded.
+- **CHANGE:** the three marketplace entries move to `strict: true`. Under
+  `strict: false` a plugin that also declares components in `plugin.json`
+  is a documented conflict and fails to load, so keeping both was not an
+  option. `strict: true` is the default and the documented mode for a plugin
+  that manages its own components. The Windows entry keeps its `mcpServers`
+  override (`cmd /c run.cmd`); mac and linux now inherit the bash block from
+  the manifest.
+- **CHANGE:** `version` is declared in `plugin.json` only. Claude Code always
+  prefers the manifest's value without warning, so a version left in the
+  marketplace entry can be silently masked by a stale manifest.
+- **TESTS:** a `UserConfigBinding` suite fails if the manifest ever stops
+  declaring `userConfig`, if any `${user_config.*}` (in the manifest or in an
+  entry's override) names an undeclared key, or if `client_secret` loses
+  `sensitive: true`. Verified against the 0.8.6 shape: it fails there. The
+  version lockstep test now reads `plugin.json` and asserts entries do *not*
+  redeclare a version.
+
 ## 0.8.6 — 2026-07-27
 
 Documentation and user-facing message strings — no behaviour changed. Three

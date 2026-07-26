@@ -29,16 +29,27 @@ Then tell the team the repo slug — that's all they need for
    ```bash
    python3 tools/test-regressions.py
    ```
+   Then validate both manifests — the plugin one is what a `--plugin-dir`
+   session reads, so a break there is invisible to a marketplace install:
+   ```bash
+   claude plugin validate ./plugin && claude plugin validate .
+   ```
 3. Record changes in `plugin/CHANGELOG.md` — this is the **user-facing version
    history** (linked from both root READMEs), so write it for users: what was
    fixed (`FIX`), what's new (`NEW`), what behaves differently (`CHG`).
-4. **Bump the version in FOUR places, in lockstep**: the three entries (+
-   `metadata`) in `.claude-plugin/marketplace.json` (what gates user-visible
-   updates), and `PLUGIN_VERSION` in `plugin/mcp/config.py` (what the server
-   reports in its startup log, `--selfcheck`, and
-   `get_sase_status.plugin_version` — how a Desktop user can ask Claude which
-   version they're running). `tools/build-standalone.py` fails on a mismatch;
-   a quick sync check:
+4. **Bump the version in THREE places, in lockstep**:
+   - `plugin/.claude-plugin/plugin.json` — the authoritative one. Claude Code
+     always prefers the manifest's version, on both load paths.
+   - `metadata.version` in `.claude-plugin/marketplace.json` — the catalog's
+     own version.
+   - `PLUGIN_VERSION` in `plugin/mcp/config.py` — what the server reports in
+     its startup log, `--selfcheck`, and `get_sase_status.plugin_version`, so
+     a user can ask Claude which version they're running.
+
+   The three **plugin entries** carry no `version` of their own and must not
+   gain one: the manifest always wins, so an entry version can't take effect —
+   it can only go stale unnoticed. `tools/build-standalone.py` fails on drift
+   *and* on a re-introduced entry version:
    ```bash
    python3 tools/build-standalone.py && rm -rf dist   # errors out on drift
    ```
@@ -49,10 +60,12 @@ Then tell the team the repo slug — that's all they need for
 6. Users get it via **Settings → Plugins → Update** / `/plugin marketplace
    update prisma-sase` (or background refresh).
 
-> Prefer zero-ceremony releases? Delete the `version` fields from the plugin
-> entries — Claude then tracks the git commit SHA and every push becomes an
-> update. Explicit versions are recommended: they gate what users see and match
-> the CHANGELOG.
+> Prefer zero-ceremony releases? Delete `version` from
+> `plugin/.claude-plugin/plugin.json` too — Claude then tracks the git commit
+> SHA and every push becomes an update. An explicit version is recommended: it
+> gates what users see and matches the CHANGELOG. (Deleting it from the plugin
+> *entries* achieves nothing — they no longer carry one; the manifest is what
+> Claude reads.)
 
 ## Why one code tree but three catalog entries
 

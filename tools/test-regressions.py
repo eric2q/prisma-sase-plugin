@@ -11,6 +11,7 @@ Scope: pure logic + the shell scripts' file handling. No live API calls (the
 tool layer runs under PRISMA_MOCK=1), no credentials required.
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -349,19 +350,115 @@ class QueryApiFamilyRouting(unittest.TestCase):
 
 
 class VersionLockstep(unittest.TestCase):
-    """PUBLISHING.md requires config.PLUGIN_VERSION == all marketplace entries."""
+    """PUBLISHING.md requires one version, declared once, everywhere it shows.
 
-    def test_versions_match(self):
+    Since 0.8.7 the version lives in plugin/.claude-plugin/plugin.json only.
+    Claude Code always prefers the manifest value over a marketplace entry's,
+    so a per-entry version cannot win -- it can only go stale and mislead.
+    """
+
+    def _manifest(self):
+        import json
+        path = os.path.join(ROOT, "plugin", ".claude-plugin", "plugin.json")
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def _marketplace(self):
         import json
         path = os.path.join(ROOT, ".claude-plugin", "marketplace.json")
         with open(path, encoding="utf-8") as fh:
-            market = json.load(fh)
-        for entry in market["plugins"]:
-            self.assertEqual(
-                entry["version"], config.PLUGIN_VERSION,
-                "%s is v%s but config.PLUGIN_VERSION is v%s -- "
-                "PUBLISHING.md requires them in lockstep"
-                % (entry["name"], entry["version"], config.PLUGIN_VERSION))
+            return json.load(fh)
+
+    def test_manifest_matches_config(self):
+        self.assertEqual(
+            self._manifest()["version"], config.PLUGIN_VERSION,
+            "plugin.json is v%s but config.PLUGIN_VERSION is v%s -- "
+            "PUBLISHING.md requires them in lockstep"
+            % (self._manifest()["version"], config.PLUGIN_VERSION))
+
+    def test_marketplace_metadata_matches_config(self):
+        meta = self._marketplace()["metadata"]["version"]
+        self.assertEqual(
+            meta, config.PLUGIN_VERSION,
+            "marketplace metadata is v%s but config.PLUGIN_VERSION is v%s -- "
+            "PUBLISHING.md requires them in lockstep"
+            % (meta, config.PLUGIN_VERSION))
+
+    def test_entries_do_not_redeclare_version(self):
+        for entry in self._marketplace()["plugins"]:
+            self.assertNotIn(
+                "version", entry,
+                "%s declares its own version; the manifest always wins, so "
+                "this one can only drift out of sight" % entry["name"])
+
+
+class UserConfigBinding(unittest.TestCase):
+    """Every ${user_config.KEY} must resolve against a declared userConfig key.
+
+    0.8.0-0.8.6 declared userConfig in marketplace.json only. A sideloaded
+    session (`claude --plugin-dir ./plugin`) reads plugin.json and never sees
+    marketplace.json, so all four placeholders stayed literal and the server
+    started with no credentials at all. The declaration now lives in the
+    manifest; these tests keep it there.
+    """
+
+    PLACEHOLDER = re.compile(r"\$\{user_config\.([A-Za-z0-9_]+)\}")
+
+    def _manifest(self):
+        import json
+        path = os.path.join(ROOT, "plugin", ".claude-plugin", "plugin.json")
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def _marketplace(self):
+        import json
+        path = os.path.join(ROOT, ".claude-plugin", "marketplace.json")
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def _placeholders_in(self, blob):
+        import json
+        return set(self.PLACEHOLDER.findall(json.dumps(blob)))
+
+    def test_manifest_declares_user_config(self):
+        """Without this the sideload path has nothing to bind to."""
+        self.assertTrue(
+            self._manifest().get("userConfig"),
+            "plugin.json must declare userConfig -- marketplace.json is not "
+            "read when the plugin is loaded with --plugin-dir")
+
+    def test_manifest_placeholders_are_declared(self):
+        manifest = self._manifest()
+        declared = set(manifest.get("userConfig", {}))
+        for key in self._placeholders_in(manifest.get("mcpServers", {})):
+            self.assertIn(
+                key, declared,
+                "manifest uses ${user_config.%s} but does not declare it; it "
+                "would reach the server as a literal placeholder" % key)
+
+    def test_marketplace_overrides_bind_to_the_manifest(self):
+        """An entry may override mcpServers, but it inherits the declaration."""
+        declared = set(self._manifest().get("userConfig", {}))
+        for entry in self._marketplace()["plugins"]:
+            for key in self._placeholders_in(entry.get("mcpServers", {})):
+                self.assertIn(
+                    key, declared,
+                    "%s uses ${user_config.%s} but the manifest does not "
+                    "declare it" % (entry["name"], key))
+
+    def test_every_credential_var_is_wired(self):
+        env = self._manifest()["mcpServers"]["prisma-sase"]["env"]
+        for var in ("PRISMA_CLIENT_ID", "PRISMA_CLIENT_SECRET",
+                    "PRISMA_TSG_ID", "PRISMA_REGION"):
+            self.assertIn(var, env, "%s is not passed to the server" % var)
+
+    def test_the_secret_is_marked_sensitive(self):
+        """sensitive:true keeps it out of settings.json and in secure storage."""
+        spec = self._manifest()["userConfig"]["client_secret"]
+        self.assertTrue(
+            spec.get("sensitive"),
+            "client_secret must be sensitive:true or it lands in plaintext "
+            "settings.json")
 
 
 class MockSmokeTest(unittest.TestCase):

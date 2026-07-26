@@ -1,0 +1,58 @@
+{
+  "name": "prisma-sase-mac",
+  "description": "Prisma SASE (Prisma Access) read-only tools + ops Skill: MCP server for alerts, tunnels, Mobile Users and ADEM. Shared manifest for the mac/linux/windows marketplace entries; the Windows entry overrides mcpServers to launch via cmd.",
+  "version": "0.8.7",
+  "author": {
+    "name": "Eric (Solutions Consultant, Palo Alto Networks)"
+  },
+  "homepage": "https://github.com/eric2q/prisma-sase-plugin",
+  "repository": "https://github.com/eric2q/prisma-sase-plugin",
+  "license": "MIT",
+  "keywords": [
+    "prisma-sase",
+    "prisma-access",
+    "sase",
+    "mcp",
+    "adem",
+    "insights",
+    "read-only",
+    "network-operations"
+  ],
+  "mcpServers": {
+    "prisma-sase": {
+      "command": "bash",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcp/run.sh"
+      ],
+      "env": {
+        "PRISMA_CLIENT_ID": "${user_config.client_id}",
+        "PRISMA_CLIENT_SECRET": "${user_config.client_secret}",
+        "PRISMA_TSG_ID": "${user_config.tsg_id}",
+        "PRISMA_REGION": "${user_config.region}"
+      }
+    }
+  },
+  "userConfig": {
+    "client_id": {
+      "type": "string",
+      "title": "Prisma SASE Client ID",
+      "description": "Service-account Client ID, e.g. apikey@1234567890.iam.panserviceaccount.com (see the README's API-key walkthrough)"
+    },
+    "client_secret": {
+      "type": "string",
+      "title": "Prisma SASE Client Secret",
+      "description": "Shown only once when the service account is created. Stored in secure storage (macOS Keychain, or ~/.claude/.credentials.json where no keychain is available), never in settings.json. This is the recommended path; leave empty only if you supply the secret another way (~/.prisma-sase.env or PRISMA_SECRET_CMD).",
+      "sensitive": true
+    },
+    "tsg_id": {
+      "type": "string",
+      "title": "TSG ID",
+      "description": "Tenant Service Group ID -- the digits after @ in the Client ID"
+    },
+    "region": {
+      "type": "string",
+      "title": "Region",
+      "description": "X-PANW-Region header value for your tenant, e.g. sg, us, de"
+    }
+  }
+}
