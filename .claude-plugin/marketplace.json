@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Read-only Prisma SASE (Prisma Access) AI-assistant tools: MCP server + ops Skill. One code tree, three OS-specific catalog entries — install the one matching your OS.",
-    "version": "0.8.5"
+    "version": "0.8.6"
   },
   "plugins": [
     {
       "name": "prisma-sase-mac",
       "source": "./plugin",
       "description": "Prisma SASE read-only tools + ops Skill — macOS variant (launches via bash). Windows: prisma-sase-windows; Linux: prisma-sase-linux.",
-      "version": "0.8.5",
+      "version": "0.8.6",
       "author": {
         "name": "Eric (Solutions Consultant, Palo Alto Networks)"
       },
@@ -53,7 +53,7 @@
         "client_secret": {
           "type": "string",
           "title": "Prisma SASE Client Secret",
-          "description": "Shown only once when the service account is created. Stored in your OS secure storage (macOS Keychain), never in plaintext settings. This is the recommended path; leave empty only if you supply the secret another way (~/.prisma-sase.env or PRISMA_SECRET_CMD).",
+          "description": "Shown only once when the service account is created. Stored in secure storage (macOS Keychain, or ~/.claude/.credentials.json where no keychain is available), never in settings.json. This is the recommended path; leave empty only if you supply the secret another way (~/.prisma-sase.env or PRISMA_SECRET_CMD).",
           "sensitive": true
         },
         "tsg_id": {
@@ -72,7 +72,7 @@
       "name": "prisma-sase-linux",
       "source": "./plugin",
       "description": "Prisma SASE read-only tools + ops Skill — Linux variant (launches via bash). macOS: prisma-sase-mac; Windows: prisma-sase-windows.",
-      "version": "0.8.5",
+      "version": "0.8.6",
       "author": {
         "name": "Eric (Solutions Consultant, Palo Alto Networks)"
       },
@@ -113,7 +113,7 @@
         "client_secret": {
           "type": "string",
           "title": "Prisma SASE Client Secret",
-          "description": "Shown only once when the service account is created. Stored in your OS secure storage (macOS Keychain), never in plaintext settings. This is the recommended path; leave empty only if you supply the secret another way (~/.prisma-sase.env or PRISMA_SECRET_CMD).",
+          "description": "Shown only once when the service account is created. Stored in secure storage (macOS Keychain, or ~/.claude/.credentials.json where no keychain is available), never in settings.json. This is the recommended path; leave empty only if you supply the secret another way (~/.prisma-sase.env or PRISMA_SECRET_CMD).",
           "sensitive": true
         },
         "tsg_id": {
@@ -132,7 +132,7 @@
       "name": "prisma-sase-windows",
       "source": "./plugin",
       "description": "Prisma SASE read-only tools + ops Skill — Windows variant (launches via cmd / run.cmd). macOS: prisma-sase-mac; Linux: prisma-sase-linux.",
-      "version": "0.8.5",
+      "version": "0.8.6",
       "author": {
         "name": "Eric (Solutions Consultant, Palo Alto Networks)"
       },
@@ -174,7 +174,7 @@
         "client_secret": {
           "type": "string",
           "title": "Prisma SASE Client Secret",
-          "description": "Shown only once when the service account is created. Stored in your OS secure storage (macOS Keychain), never in plaintext settings. This is the recommended path; leave empty only if you supply the secret another way (~/.prisma-sase.env or PRISMA_SECRET_CMD).",
+          "description": "Shown only once when the service account is created. Stored in secure storage (macOS Keychain, or ~/.claude/.credentials.json where no keychain is available), never in settings.json. This is the recommended path; leave empty only if you supply the secret another way (~/.prisma-sase.env or PRISMA_SECRET_CMD).",
           "sensitive": true
         },
         "tsg_id": {

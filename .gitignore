@@ -1,3 +1,7 @@
 __pycache__/
 *.pyc
 dist/
+
+# one-off release helper scripts (publish-0.8.6.sh etc.) -- generated per
+# release, run from the repo root, never part of the published tree
+publish-*.sh

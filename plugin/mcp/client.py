@@ -78,8 +78,10 @@ def _require_ctx(tsg, region):
     if not region:
         missing.append("PRISMA_REGION (or the region argument)")
     if missing:
-        hint = ("Easiest fix: fill in the plugin's enable dialog (Settings -> "
-                "Plugins -> prisma-sase), then fully restart the app. Without "
+        hint = ("Easiest fix: fill in the plugin's enable dialog (Desktop: "
+                "Settings -> Plugins -> prisma-sase; the Claude Code CLI "
+                "prompts for the same four values on enable), then fully "
+                "restart the app. Without "
                 "that dialog (cloud session, CI, standalone install), put the "
                 "values in ~/.prisma-sase.env (KEY=VALUE lines, chmod 600) or "
                 "set the environment variable(s) -- on macOS, GUI apps often "

@@ -134,13 +134,18 @@ it is stored (enable dialog, env file, or secret store).
 **Step 4 — provide the four variables.** Three supported sources, in the
 order the server resolves them:
 
-1. **The plugin enable dialog (userConfig — recommended for marketplace
-   installs).** Claude prompts for the four values when the plugin is
-   enabled; the Client Secret is `sensitive` and lands in the OS secure
-   storage (macOS Keychain), never in plaintext settings. If your host is
-   too old to expand the dialog values, the server detects the literal
-   `${user_config.*}` placeholders, treats them as unset, and falls through
-   to the env file — `--selfcheck` names exactly what happened.
+1. **The plugin enable dialog (userConfig — the recommended path).** Claude
+   prompts for the four values when the plugin is enabled. This is a core
+   plugin feature, **not** Desktop-only: the Claude Code CLI prompts for
+   them too, so a CLI install does not need an env file. The Client Secret
+   is declared `sensitive`, so it is masked on entry and stored in secure
+   storage rather than `settings.json` — the macOS Keychain, or
+   `~/.claude/.credentials.json` on platforms with no supported keychain.
+   The other three land in `~/.claude/settings.json` under
+   `pluginConfigs[<plugin-id>].options`. If your host is too old to expand
+   the dialog values, the server detects the literal `${user_config.*}`
+   placeholders, treats them as unset, and falls through to the env file —
+   `--selfcheck` names exactly what happened.
 2. **The env file** — the fallback wherever there is no dialog (cloud
    sessions, CI, hand-installed checkouts), and the only home for the
    non-credential `PRISMA_*` tuning variables listed at the end of this file,
@@ -153,6 +158,13 @@ order the server resolves them:
    PRISMA_TSG_ID=1234567890
    PRISMA_REGION=sg
    ```
+
+   The file is read no matter how the app was launched, which is what makes
+   it a dependable fallback on macOS: GUI apps started from Finder/Dock/
+   Spotlight are **not guaranteed to inherit `launchctl setenv` variables**
+   — on many machines they simply never arrive (field-verified), so exporting
+   the four values into your shell is not a reliable substitute. Custom
+   location: `PRISMA_ENV_FILE`.
 3. **`PRISMA_SECRET_CMD`** — keep everything except the secret in the env
    file and fetch the secret from a secret store at startup (the file then
    contains nothing sensitive):
@@ -167,14 +179,13 @@ order the server resolves them:
    prisma-sase -a client_secret -w`.) `--selfcheck` shows which source
    supplied the secret.
 
-This is the **primary** path on macOS: GUI apps launched from Finder/Dock/
-Spotlight are **not guaranteed to inherit `launchctl setenv` variables** — on
-many machines they simply never arrive (field-verified). The env file works
-regardless of how the app was launched. Custom location: `PRISMA_ENV_FILE`.
-
-*Alternative: environment variables* — if your launch method reliably forwards
-them (e.g. starting the app from a terminal, or a managed-device profile), the
-server inherits them, and real environment values always win over the file.
+*Plain environment variables* also work when your launch method reliably
+forwards them (starting the app from a terminal, a managed-device profile):
+the server inherits them, and a real environment value always wins over the
+env file. This is the same channel the enable dialog uses — it injects the
+four values into the server process — which is why a `--selfcheck` run from
+an ordinary shell cannot see dialog-supplied credentials and reports them as
+missing.
 
 **Verify any time** (no credentials needed with mock):
 
@@ -221,7 +232,7 @@ data through the real code path — good for a first look or a customer demo.
 | Tools still missing right after installing the dependencies | The plugin server is only relaunched on a **full app restart** | macOS: **⌘Q** (closing the window is not enough), then reopen. Windows: quit from the tray/taskbar, not just the window |
 | `~/.prisma-sase-venv` exists but the server uses another interpreter | The venv's symlinked interpreter is dangling — common after a Python upgrade moves the version it was built against (the launch log now says so explicitly) | Recreate it: `rm -rf ~/.prisma-sase-venv && bash install.sh` |
 | `pip install fastmcp` → "No matching distribution found" | Misleading pip message — your Python is too old, the package exists | `python3 --version`; use a ≥ 3.10 interpreter (`install.sh` does this) |
-| "Missing required context / Missing PRISMA_CLIENT_ID…" although `launchctl getenv` shows values | macOS GUI apps launched from Finder/Dock are not guaranteed to inherit `launchctl setenv` (field-verified: on some machines the vars never arrive) | Use the plugin enable dialog (the primary path on Desktop), or `~/.prisma-sase.env` if your install has no dialog — `install.sh` creates the template. `--selfcheck` shows which source supplied each value |
+| "Missing required context / Missing PRISMA_CLIENT_ID…" although `launchctl getenv` shows values | macOS GUI apps launched from Finder/Dock are not guaranteed to inherit `launchctl setenv` (field-verified: on some machines the vars never arrive) | Use the plugin enable dialog (the recommended path, in both Desktop and the CLI), or `~/.prisma-sase.env` if your install has no dialog — `install.sh` creates the template. `--selfcheck` shows which source supplied each value |
 | Insights tool returns HTTP 400 | Resource/view name or filter-payload shape doesn't match this tenant (the client already auto-tries time-filter and empty-filter variants) | Run `discover_insights` (or `--discover`), adopt the `suggested_insights_map` into `~/.prisma-sase.env` |
 | Alerts show only counts, `severity_unavailable: true` | The per-alert severity view (`prisma_sase_external_alerts_current`, tried automatically first) did not return usable rows on your tenant, so the tool fell back to the aggregate view (counts by MU/RN/SC) | `discover_insights(kind="alerts_detail")` probes the candidates; if none work, capture the real view name from the SASE UI (dev tools → Network — step-by-step in the Skill's `references/endpoints.md`, "When discovery finds nothing") and set `PRISMA_INSIGHTS_MAP`; please report working names so they become shipped defaults |
 | Insights 400 with `DATA10003` / "Invalid resource" | The resource/view **name does not exist** on this tenant | Run `discover_insights` for working names; adopt its suggestions |
@@ -254,7 +265,9 @@ upload the macOS/Linux variant on Windows; its `bash` command won't exist).
 4. Provide the four values. The uploaded `.plugin` carries the same
    **enable dialog** as a marketplace install (the bundle ships
    `userConfig`), so filling that in is the recommended path here too — the
-   secret lands in OS secure storage. Falling back to
+   secret goes to secure storage (on Windows, where there is no supported
+   keychain, that is `%USERPROFILE%\.claude\.credentials.json`, not
+   `settings.json`). Falling back to
    `%USERPROFILE%\.prisma-sase.env` (same four variables) or to plain user
    environment variables (System Properties / `setx`, then restart the app —
    GUI apps on Windows do inherit them) both still work.

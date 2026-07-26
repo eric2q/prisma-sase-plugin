@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.8.6 — 2026-07-27
+
+Documentation and user-facing message strings — no behaviour changed. Three
+inaccuracies, all of which pushed users away from the credential path the
+plugin actually prefers.
+
+- **FIX (docs, high):** the docs described the plugin enable dialog as a
+  **Claude Desktop** feature and told Claude Code CLI users to fall back to
+  `~/.prisma-sase.env`. That is wrong. `userConfig` prompting is core Claude
+  Code behaviour — *"the `userConfig` field declares values that Claude Code
+  prompts the user for when the plugin is enabled"* — and a CLI install was
+  field-verified to prompt for all four values. A CLI user following the old
+  text would create an env file they never needed, putting the secret in a
+  plaintext file when secure storage was available. Corrected in
+  `README.md`, `README.zh-TW.md`, `plugin/README.md` (source list item 1,
+  troubleshooting table, Windows install step 4),
+  `skills/prisma-sase-ops/SKILL.md`, and the two runtime error hints in
+  `mcp/auth.py` / `mcp/client.py`, which sent every user down a
+  "Settings → Plugins" path that only exists in Desktop.
+- **FIX (docs):** "stored in your OS secure storage (macOS Keychain), never
+  in plaintext settings" was stated as unconditional — including in the
+  shipped, user-visible `client_secret` field description in
+  **`marketplace.json`, on all three OS variants**, so Linux and Windows
+  users read a macOS-only claim in the dialog itself. Where no supported
+  keychain exists the value goes to `~/.claude/.credentials.json`. Every
+  occurrence now says "secure storage (macOS Keychain, or
+  `~/.claude/.credentials.json` where no keychain is available)".
+- **FIX (docs):** `plugin/README.md` still called the env file "the
+  **primary** path on macOS", contradicting the numbered source list directly
+  above it (where the enable dialog is #1) *and* the troubleshooting table in
+  the same file. The 0.8.5 userConfig-first pass swept `install.sh` but
+  missed this paragraph, so the claim that it "completes the userConfig-first
+  pass" was premature. The `launchctl setenv` caveat it carried was also
+  stranded under the `PRISMA_SECRET_CMD` item while describing the env file;
+  it now sits with the env file, and the environment-variable note explains
+  that the dialog injects through that same channel — which is why a
+  hand-run `--selfcheck` cannot see dialog-supplied credentials.
+
 ## 0.8.5 — 2026-07-26
 
 From a full code review of the plugin. Two of these let the tooling report

@@ -81,10 +81,11 @@ class AuthManager:
     def _fetch(self, tsg):
         if not config.CLIENT_ID or not config.CLIENT_SECRET:
             msg = ("Missing PRISMA_CLIENT_ID / PRISMA_CLIENT_SECRET. Easiest "
-                   "fix: fill in the plugin's enable dialog (Settings -> "
-                   "Plugins -> prisma-sase) -- the secret goes to your OS "
-                   "secure storage, and a full app restart applies it. "
-                   "Without that dialog (cloud session, CI, standalone "
+                   "fix: fill in the plugin's enable dialog (Desktop: "
+                   "Settings -> Plugins -> prisma-sase; the Claude Code CLI "
+                   "prompts for the same four values on enable) -- the secret "
+                   "goes to secure storage, and a full app restart applies "
+                   "it. Without that dialog (cloud session, CI, standalone "
                    "install), use ~/.prisma-sase.env (chmod 600) or "
                    "PRISMA_SECRET_CMD. These are deliberately NOT tool "
                    "parameters: credentials must never travel through the "

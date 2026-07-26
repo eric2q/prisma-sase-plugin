@@ -211,8 +211,10 @@ If no tools at all are present, bootstrap in ~2 minutes:
 ## Credential handling rules — enforce these when guiding users
 
 1. **Only the supported homes, nowhere else.** Credentials live in exactly
-   one of: (a) the **plugin enable dialog** (userConfig — the secret lands
-   in the OS secure storage; the recommended path on Desktop), (b) the
+   one of: (a) the **plugin enable dialog** (userConfig — the recommended
+   path, prompted by both Claude Desktop and the Claude Code CLI; the secret
+   lands in secure storage: the macOS Keychain, or `~/.claude/.credentials.json`
+   where no keychain is available), (b) the
    **local env file** `~/.prisma-sase.env` (Windows:
    `%USERPROFILE%\.prisma-sase.env`, `chmod 600`), or (c) a secret store
    reached via **`PRISMA_SECRET_CMD`** (Keychain / secret-tool / pass /

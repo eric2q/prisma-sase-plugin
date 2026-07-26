@@ -95,13 +95,13 @@ repository** → enter this repo (`eric2q/prisma-sase-plugin` or the full git UR
 ```
 
 **3. Credentials — create the API key** (walkthrough below), then provide the
-four values. **Marketplace installs prompt for them when you enable the
-plugin** (a form pops up; the Client Secret goes into your OS secure storage
-— macOS Keychain — never a plaintext file). Use that. The
-`~/.prisma-sase.env` file (Windows: `%USERPROFILE%\.prisma-sase.env`;
-template created by the install script) is the fallback for cloud sessions,
-CI, and hosts without the dialog — and stays the place for the optional
-tuning variables the dialog doesn't cover. Restart the Claude app afterwards. Full details, selfcheck and troubleshooting:
+four values. **Enabling the plugin prompts for them** — in Claude Desktop and
+in the Claude Code CLI alike (the Client Secret is masked and goes to secure
+storage, not `settings.json`). Use that. The `~/.prisma-sase.env` file
+(Windows: `%USERPROFILE%\.prisma-sase.env`; template created by the install
+script) is the fallback for cloud sessions, CI, and hosts without the dialog
+— and stays the place for the optional tuning variables the dialog doesn't
+cover. Restart the Claude app afterwards. Full details, selfcheck and troubleshooting:
 [`plugin/README.md`](plugin/README.md).
 
 ## Getting the API key (read-only service account)
@@ -156,10 +156,12 @@ under the correct TSG scope and bind only the tenants you need.
 
 **Provide the values from step 3** — two supported paths:
 
-- **Plugin enable dialog (recommended on Desktop):** when you install/enable
-  the plugin from the marketplace, Claude prompts for Client ID, Client
-  Secret, TSG ID, and Region. The secret is stored in your **OS secure
-  storage** (macOS Keychain), not in any plaintext file.
+- **Plugin enable dialog (recommended):** when you install/enable the plugin,
+  Claude prompts for Client ID, Client Secret, TSG ID, and Region — this
+  works in Claude Desktop and in the Claude Code CLI. The secret is masked
+  on entry and stored in **secure storage** (macOS Keychain, or
+  `~/.claude/.credentials.json` where no keychain is available), not in
+  `settings.json` and not in any file of ours.
 - **Env file** (`~/.prisma-sase.env`, `KEY=VALUE`, no quotes; masked here
   with asterisks) — the fallback for cloud sessions, CI, or hosts without
   the dialog:
