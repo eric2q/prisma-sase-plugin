@@ -42,9 +42,11 @@ path. See the README for the full walkthrough.
   enterprise builds use a suffix — `Claude-3p/` is the one seen in the field —
   and the wizard hardcoded `Claude/`, so it reported success into a file the
   running app never reads: credentials present, no tools, no error anywhere.
-  It now finds every `Claude*` config, writes to the most recently modified
-  one (the app in use), names the others it skipped, and takes
-  `PRISMA_PANEL_CONFIG=<path>` when the guess is wrong.
+  It now scans for every `Claude*` config and, when a machine has more than
+  one, lists them — each with the MCP server names it already holds, never a
+  value — and asks which to write. Guessing is the failure mode here, so it
+  does not guess. `PRISMA_PANEL_CONFIG=<path>` answers ahead of time for
+  unattended runs.
 - **FIX (diagnosis, high):** the plugin **stopped accusing correctly-installed
   users of a host bug.** 0.8.8 treated "enabled, but `settings.json` holds no
   `pluginConfigs` entry" as proof the enable dialog never ran — a sound

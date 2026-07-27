@@ -10,6 +10,8 @@ with an explanation rather than a bare assertion.
 Scope: pure logic + the shell scripts' file handling. No live API calls (the
 tool layer runs under PRISMA_MOCK=1), no credentials required.
 """
+import contextlib
+import json
 import os
 import re
 import shutil
@@ -746,6 +748,105 @@ class SetupWizard(unittest.TestCase):
                 w._panel_config_path().endswith(
                     os.path.join("Claude", "claude_desktop_config.json")),
                 w._panel_config_path())
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def _choose(self, w, answer):
+        """Run the interactive chooser with `answer` typed at the prompt."""
+        import io
+        import unittest.mock as mock
+        out = io.StringIO()
+        with mock.patch.object(w, "input", create=True,
+                               side_effect=lambda _="": answer), \
+                contextlib.redirect_stdout(out):
+            return w._choose_panel_config(), out.getvalue()
+
+    def test_several_installs_are_offered_as_a_choice(self):
+        """The heuristic must not decide this silently.
+
+        Picking wrong is invisible -- the write succeeds and no tools appear
+        -- so the user has to see the alternatives and be able to say which.
+        """
+        w = self._wizard()
+        home, (plain, three_p) = self._fake_home("Claude", "Claude-3p")
+        try:
+            os.utime(plain, (1_600_000_000, 1_600_000_000))
+            os.utime(three_p, (1_700_000_000, 1_700_000_000))
+            self._with_home(w, home)
+
+            chosen, shown = self._choose(w, "")        # bare Enter
+            self.assertEqual(chosen, three_p, "default is the recent one")
+            self.assertIn(plain, shown,
+                          "the alternative must be listed, not hidden")
+
+            chosen, _ = self._choose(w, "2")           # override the default
+            self.assertEqual(chosen, plain,
+                             "an explicit answer must be honoured")
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_a_single_install_is_not_turned_into_a_question(self):
+        """Asking when there is nothing to choose is just noise."""
+        w = self._wizard()
+        home, (three_p,) = self._fake_home("Claude-3p")
+        try:
+            self._with_home(w, home)
+            chosen, shown = self._choose(w, "")
+            self.assertEqual(chosen, three_p)
+            self.assertNotIn("which one", shown.lower())
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_the_listing_names_servers_but_never_values(self):
+        """The chooser reads other people's configs to describe them.
+
+        Those hold API tokens. Printing a value to help someone tell two
+        configs apart would leak a credential to the terminal and the scroll
+        buffer -- names are enough to identify a file.
+        """
+        w = self._wizard()
+        home, (plain,) = self._fake_home("Claude")
+        try:
+            with open(plain, "w", encoding="utf-8") as fh:
+                json.dump({"mcpServers": {"other": {
+                    "env": {"API_TOKEN": "s3cr3t-do-not-print"}}}}, fh)
+            self._with_home(w, home)
+            desc = w._describe_config(plain)
+            self.assertIn("other", desc)
+            self.assertNotIn("s3cr3t", desc)
+            self.assertNotIn("API_TOKEN", desc)
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_an_unreadable_config_is_described_not_crashed_on(self):
+        w = self._wizard()
+        home, (plain,) = self._fake_home("Claude")
+        try:
+            with open(plain, "w", encoding="utf-8") as fh:
+                fh.write("{ not json")
+            self._with_home(w, home)
+            self.assertIn("JSON", w._describe_config(plain))
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_no_terminal_falls_back_instead_of_dying(self):
+        """Piped stdin is a real case (CI, a wrapper script)."""
+        w = self._wizard()
+        home, (plain, three_p) = self._fake_home("Claude", "Claude-3p")
+        try:
+            os.utime(plain, (1_600_000_000, 1_600_000_000))
+            os.utime(three_p, (1_700_000_000, 1_700_000_000))
+            self._with_home(w, home)
+            import io
+            import unittest.mock as mock
+            out = io.StringIO()
+            with mock.patch.object(w, "input", create=True,
+                                   side_effect=EOFError), \
+                    contextlib.redirect_stdout(out):
+                chosen = w._choose_panel_config()
+            self.assertEqual(chosen, three_p)
+            self.assertIn(three_p, out.getvalue(),
+                          "a silent fallback is the bug this fixes")
         finally:
             shutil.rmtree(home, ignore_errors=True)
 

@@ -89,9 +89,10 @@ Then, in order:
    ```bash
    ls -d ~/Library/Application\ Support/Claude*
    ```
-   `prisma-sase-setup` picks the most recently modified one and says so when
-   there is more than one. Override it with
-   `PRISMA_PANEL_CONFIG=<path> prisma-sase-setup` if it guesses wrong.
+   `prisma-sase-setup` scans for all of them and, when there is more than one,
+   lists them and asks which to write — it does not guess. To skip the question
+   (or when running unattended), set
+   `PRISMA_PANEL_CONFIG=<path> prisma-sase-setup`.
    (Linux: `~/.config/Claude*`; Windows: `%APPDATA%\Claude*`.)
 
 ## Getting the API key — a read-only service account

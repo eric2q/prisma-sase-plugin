@@ -176,25 +176,94 @@ def _panel_config_dirs():
     return dirs
 
 
-def _panel_config_path():
-    """Pick the config file to write.
+def _existing_panel_configs():
+    """Config files that actually exist, most recently modified first."""
+    candidates = [os.path.join(d, "claude_desktop_config.json")
+                  for d in _panel_config_dirs()]
+    return sorted((p for p in candidates if os.path.exists(p)),
+                  key=os.path.getmtime, reverse=True)
 
-    PRISMA_PANEL_CONFIG wins outright. Otherwise: the one existing file if
-    there is exactly one, the most recently modified if there are several
-    (that is the app actually in use), and the plain "Claude" path if none
-    exists yet.
+
+def _panel_config_path():
+    """The file to write when nobody is around to be asked.
+
+    PRISMA_PANEL_CONFIG wins outright. Otherwise the most recently modified
+    existing config (the app most likely in use), or the plain "Claude" path
+    on a machine that has none yet. `_choose_panel_config` asks instead when
+    there is a terminal and the answer is not obvious.
     """
     override = os.environ.get("PRISMA_PANEL_CONFIG")
     if override:
         return os.path.expanduser(override)
-    candidates = [os.path.join(d, "claude_desktop_config.json")
-                  for d in _panel_config_dirs()]
-    existing = [p for p in candidates if os.path.exists(p)]
+    existing = _existing_panel_configs()
+    if existing:
+        return existing[0]
+    return os.path.join(_panel_config_dirs()[0], "claude_desktop_config.json")
+
+
+def _describe_config(path):
+    """A one-line hint of what lives in a config, to tell two apart.
+
+    Server names only -- never a value. A config that will not parse is worth
+    saying so about: it is the one _write_panel_config will refuse.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:
+        return "unreadable / not valid JSON"
+    names = list((data.get("mcpServers") or {}).keys())
+    if not names:
+        return "no MCP servers yet"
+    shown = ", ".join(names[:4])
+    return "servers: %s%s" % (shown, ", ..." if len(names) > 4 else "")
+
+
+def _choose_panel_config():
+    """Ask which config to write when the machine has more than one.
+
+    Several Claude builds can be installed side by side, each with its own
+    directory (Claude, Claude-3p, ...). Only the running one reads its file,
+    and picking wrong is invisible: the write succeeds, the entry looks
+    perfect, and no tools ever appear. So when the answer is not forced, ask.
+    """
+    override = os.environ.get("PRISMA_PANEL_CONFIG")
+    if override:
+        path = os.path.expanduser(override)
+        print("\nUsing PRISMA_PANEL_CONFIG: %s" % path)
+        return path
+
+    existing = _existing_panel_configs()
     if not existing:
-        return candidates[0]
+        return os.path.join(_panel_config_dirs()[0],
+                            "claude_desktop_config.json")
     if len(existing) == 1:
         return existing[0]
-    return max(existing, key=lambda p: os.path.getmtime(p))
+
+    print("")
+    print("  More than one Claude config exists on this machine.")
+    print("  Only the app you actually run reads its own file -- writing to")
+    print("  the wrong one looks like it worked and produces no tools.")
+    print("")
+    for i, p in enumerate(existing, 1):
+        print("    %d) %s" % (i, p))
+        print("       %s" % _describe_config(p))
+    print("")
+    print("  (1 was modified most recently, so it is usually the one in use.)")
+
+    while True:
+        try:
+            answer = input("  > which one? [1]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            # No terminal (piped stdin): fall back rather than die, but say
+            # which was picked so a wrong guess is visible.
+            print("\n  no answer available -- defaulting to %s" % existing[0])
+            return existing[0]
+        if not answer:
+            return existing[0]
+        if answer.isdigit() and 1 <= int(answer) <= len(existing):
+            return existing[int(answer) - 1]
+        print("    (enter 1-%d)" % len(existing))
 
 
 def _uvx_path():
@@ -224,12 +293,12 @@ def _panel_entry(client_id, tsg_id, region, secret_cmd):
     }
 
 
-def _write_panel_config(entry):
+def _write_panel_config(entry, path=None):
     """Merge the entry into claude_desktop_config.json, backing it up first.
 
     Returns (path, action) where action is 'created' | 'updated' | 'added'.
     """
-    path = _panel_config_path()
+    path = path or _panel_config_path()
     data = {}
     action = "created"
     if os.path.exists(path):
@@ -281,15 +350,16 @@ def main(argv=None):
             print("client secret  : %s" %
                   ("STORED (value not printed)" if got else "not stored"))
             print("fetch command  : %s" % _quote(fetch_argv))
-        path = _panel_config_path()
-        print("panel config   : %s" %
-              (path if os.path.exists(path) else "%s (does not exist)" % path))
-        others = [p for p in
-                  (os.path.join(d, "claude_desktop_config.json")
-                   for d in _panel_config_dirs())
-                  if os.path.exists(p) and p != path]
-        for p in others:
-            print("  also present : %s (not written to)" % p)
+        existing = _existing_panel_configs()
+        if not existing:
+            print("panel config   : %s (does not exist)"
+                  % _panel_config_path())
+        for i, p in enumerate(existing):
+            print("%s: %s" % ("panel config   " if i == 0
+                              else "  also present ", p))
+            print("                 %s" % _describe_config(p))
+        if len(existing) > 1:
+            print("  (setup will ask which of these to write)")
         return 0
 
     print(BANNER)
@@ -353,23 +423,18 @@ def main(argv=None):
     if print_only:
         print("")
         print("--print given: nothing was written. Paste the block above into")
-        print("  %s" % _panel_config_path())
+        existing = _existing_panel_configs()
+        if len(existing) > 1:
+            print("  one of these -- whichever app you actually run:")
+            for p in existing:
+                print("    %s" % p)
+        else:
+            print("  %s" % _panel_config_path())
         return 0
 
+    target = _choose_panel_config()
+
     print("")
-    target = _panel_config_path()
-    rivals = [p for p in
-              (os.path.join(d, "claude_desktop_config.json")
-               for d in _panel_config_dirs())
-              if os.path.exists(p) and p != target]
-    if rivals:
-        # Several Claude builds installed. Picking silently is how the entry
-        # ends up in a file the running app never reads.
-        print("More than one Claude config exists on this machine:")
-        for p in rivals:
-            print("    %s" % p)
-        print("  Choosing the most recently modified one (the app in use).")
-        print("  Override with PRISMA_PANEL_CONFIG=<path> if that is wrong.")
     print("Write this into %s ?" % target)
     try:
         answer = input("  [y/N]: ").strip().lower()
@@ -380,7 +445,7 @@ def main(argv=None):
         return 0
 
     try:
-        path, action = _write_panel_config(entry)
+        path, action = _write_panel_config(entry, target)
     except Exception as exc:
         print("Could not write it: %s" % exc)
         print("Paste the block above by hand instead.")
