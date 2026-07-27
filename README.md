@@ -82,6 +82,13 @@ servers entry for you:
 uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
 ```
 
+> **On ARM64 Windows, add two flags** — `uvx --managed-python --python
+> cpython-3.12-windows-x86_64 --from … prisma-sase-setup`. A transitive
+> dependency publishes no `win_arm64` wheel, so a native interpreter tries to
+> compile it and fails on a missing Rust toolchain. The wizard carries the
+> flags into the entry it writes, so this is the only command you type them
+> into. Detail: [Windows on ARM](plugin/README.md#windows-on-arm).
+
 It shows you the entry and asks before writing anything; `--print` shows the
 JSON and writes nothing at all, if you would rather paste it into
 **Settings → Extensions → Local MCP servers** by hand. The entry it produces:

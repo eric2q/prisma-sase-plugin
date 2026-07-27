@@ -293,7 +293,15 @@ if ($script:failed -eq 0) {
     Write-Host "all checks passed" -ForegroundColor Green
     Write-Host ""
     Write-Host "The Windows secret path works. Next: run the real thing --"
-    Write-Host "  uvx --from git+https://github.com/eric2q/prisma-sase-plugin@uvx-local-mcp prisma-sase-setup"
+    # Built from the wizard's own args, not typed out. prisma-sase-setup lives in
+    # the same package as the server, so uvx installs the same dependency set for
+    # it -- cryptography included. On ARM64 a bare command would hit the missing
+    # win_arm64 wheel here, at the very first thing the user runs, before the
+    # wizard exists to fix anything.
+    $setupArgs = ($g.uvxargs `
+        -replace 'prisma-sase-plugin ', 'prisma-sase-plugin@uvx-local-mcp ' `
+        -replace 'prisma-sase-mcp$', 'prisma-sase-setup')
+    Write-Host "  uvx $setupArgs"
     Write-Host "then restart the app and ask it to run get_sase_status."
     exit 0
 } else {

@@ -75,6 +75,13 @@ Server 單獨就能用 —— Skill 只是讓 Claude 更會挑工具、更會判
 uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
 ```
 
+> **ARM64 Windows 要多加兩個旗標** —— `uvx --managed-python --python
+> cpython-3.12-windows-x86_64 --from … prisma-sase-setup`。有一個間接相依
+> 套件沒有發佈 `win_arm64` wheel,原生直譯器會嘗試自行編譯,然後因為缺
+> Rust 工具鏈而失敗。設定精靈會把這兩個旗標帶進它寫出來的設定裡,所以
+> 只有這一條指令需要你自己加。細節見
+> [Windows on ARM](plugin/README.md#windows-on-arm)。
+
 寫入前它會先把整段設定顯示給你、並徵求同意;如果你比較想自己貼到
 **Settings → Extensions → Local MCP servers**,加 `--print` 就只印不寫。
 它產生的設定長這樣:

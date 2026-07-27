@@ -287,19 +287,31 @@ administrators.
 
 #### Windows on ARM
 
-`prisma-sase-setup` handles this for you — the note is here for when you write
-the entry by hand, or want to know why its `args` differ from everyone else's.
+There is one extra flag to pass, and it belongs on the **very first** command
+you run — the setup command itself. Use this instead of the one at the top of
+this page:
 
-`cryptography` arrives as a transitive dependency (`fastmcp` → `mcp` →
+```powershell
+uvx --managed-python --python cpython-3.12-windows-x86_64 `
+    --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
+```
+
+Everything after that is automatic: the wizard detects ARM64 and carries the
+same two flags into the entry it writes, so the server launches the same way.
+
+Why. `cryptography` arrives as a transitive dependency (`fastmcp` → `mcp` →
 `pyjwt[crypto]`) and its authors publish no `win_arm64` wheel for the current
 version. Under a native interpreter uv therefore builds it from source, which
-needs a Rust toolchain and the MSVC C++ build tools; without them the launch
+needs a Rust toolchain and the MSVC C++ build tools; without them the command
 fails with a `cargo`, `rustc` or linker error that names nothing to do with
-this plugin.
+this plugin. `prisma-sase-setup` and the server ship in the same package, so
+the dependency — and the failure — is the same for both. That is why the
+bootstrap command needs the flags too: at that moment the wizard has not run
+yet and cannot fix anything on your behalf.
 
 Running under an **x64** interpreter sidesteps it entirely: Windows on ARM
-emulates x64, the `win_amd64` wheels exist, nothing is compiled. On ARM64
-Windows the wizard asks uv for one by name, so the entry it writes reads:
+emulates x64, the `win_amd64` wheels exist, nothing is compiled. The entry the
+wizard writes reads:
 
 ```json
 "args": ["--managed-python", "--python", "cpython-3.12-windows-x86_64",

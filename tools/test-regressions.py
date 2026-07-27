@@ -1138,6 +1138,27 @@ class WindowsVerifierScript(unittest.TestCase):
         self.assertIn("sysconfig.get_platform", probe.group(1))
         self.assertNotIn("platform.machine", probe.group(1))
 
+    def test_the_closing_advice_reuses_the_wizards_own_args(self):
+        """The last thing the script prints is the command to run next, and it
+        must be built from $g.uvxargs rather than typed out.
+
+        A hardcoded `uvx --from git+... prisma-sase-setup` looks harmless and
+        is not: prisma-sase-setup ships in the same package as the server, so
+        uvx installs the same dependencies for it -- cryptography included. On
+        ARM64 that command dies on the missing win_arm64 wheel, at the first
+        thing the user is told to run, with the wizard not yet in the picture
+        to correct anything."""
+        tail = self.src[self.src.index("all checks passed"):]
+        self.assertNotRegex(
+            tail, r'uvx --from git\+',
+            "the closing advice hardcodes uvx args -- on ARM64 it must carry "
+            "the interpreter flags, so build it from $g.uvxargs")
+        self.assertIn("uvxargs", tail,
+                      "the closing advice should derive from the wizard's "
+                      "own args")
+        self.assertIn("prisma-sase-setup", tail,
+                      "the closing advice should still name the setup command")
+
     def test_it_parses(self):
         """The real check, when a parser is to hand. Skipped rather than
         failed when it is not, so this suite still runs anywhere."""
@@ -1153,6 +1174,78 @@ class WindowsVerifierScript(unittest.TestCase):
         out = subprocess.run([pwsh, "-NoProfile", "-Command", script],
                              capture_output=True, text=True, timeout=120)
         self.assertEqual("", out.stdout.strip(), "parse errors:\n" + out.stdout)
+
+
+class BootstrapCommandOnArm(unittest.TestCase):
+    """0.9.0 -- the setup command is the one thing the wizard cannot fix.
+
+    _uvx_args() detects ARM64 Windows and writes an x64 interpreter into the
+    panel entry, which fixes every *later* launch. It does nothing for the
+    command that installs the wizard in the first place: prisma-sase-setup and
+    the server are two entry points of one package, so uvx resolves the same
+    dependency set for both, cryptography included. On ARM64 the documented
+    one-liner therefore fails before the wizard has run at all.
+
+    Docs are the only lever on that first command, and the failure mode of
+    docs is that one copy gets updated. Three files publish it."""
+
+    # Each file that publishes the bootstrap command, and the anchor to look
+    # for near it. plugin/README.md carries the full explanation; the two
+    # top-level READMEs need only point at it, in their own language.
+    SOURCES = (
+        ("README.md", "ARM64 Windows"),
+        ("README.zh-TW.md", "ARM64 Windows"),
+        (os.path.join("plugin", "README.md"), "Windows on ARM"),
+    )
+
+    FLAGS = "--managed-python"
+
+    def _read(self, rel):
+        with open(os.path.join(ROOT, rel), "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_every_published_bootstrap_command_warns_about_arm(self):
+        for rel, anchor in self.SOURCES:
+            with self.subTest(file=rel):
+                text = self._read(rel)
+                self.assertIn(
+                    "prisma-sase-setup", text,
+                    "%s no longer publishes the setup command -- if that "
+                    "moved, move this test with it" % rel)
+                self.assertIn(
+                    anchor, text,
+                    "%s tells the user to run prisma-sase-setup without "
+                    "mentioning ARM64 Windows, where that exact command "
+                    "fails on a missing cryptography wheel" % rel)
+                self.assertIn(
+                    self.FLAGS, text,
+                    "%s should show the %s flags, not just describe the "
+                    "problem" % (rel, self.FLAGS))
+
+    def test_the_documented_flags_match_what_the_wizard_emits(self):
+        """Prose drifts from code silently. If _uvx_args() ever changes the
+        interpreter it asks for, the hand-typed bootstrap command in the docs
+        becomes wrong in a way nothing else would catch."""
+        import importlib.util
+        import unittest.mock as mock
+        spec = importlib.util.spec_from_file_location(
+            "wiz_arm_docs", os.path.join(MCP, "setup_wizard.py"))
+        w = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(w)
+        with mock.patch.object(w.platform, "system", lambda: "Windows"), \
+             mock.patch.object(w.platform, "machine", lambda: "ARM64"):
+            args = w._uvx_args()
+        # Everything the wizard adds before --from is what the user must type.
+        pinned = args[:args.index("--from")]
+        self.assertTrue(pinned, "the ARM64 branch emitted no extra args")
+        for rel, _ in self.SOURCES:
+            with self.subTest(file=rel):
+                text = self._read(rel)
+                for tok in pinned:
+                    self.assertIn(
+                        tok, text,
+                        "the wizard passes %r on ARM64 but %s does not show "
+                        "it in the bootstrap command" % (tok, rel))
 
 
 class HostSuppliedNothing(unittest.TestCase):

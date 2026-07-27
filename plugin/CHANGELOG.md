@@ -72,7 +72,12 @@ path. See the README for the full walkthrough.
   publishes no ARM64 Windows build in the first place, so this only makes
   explicit what it would have to do regardless. Other platforms are untouched —
   choosing uv's interpreter for it is a liberty, and the missing wheel is the
-  whole justification.
+  whole justification. The one launch the wizard cannot fix is the one that
+  installs it: `prisma-sase-setup` is a second entry point of the same package,
+  so uvx resolves the same dependencies for it and hits the same wall, before
+  any of our code has run. That command is documented with the two flags in
+  both READMEs, and a test fails if the interpreter the wizard picks and the
+  one the docs print ever drift apart.
 - **NEW:** the server auto-updates. No pinned ref means every launch gets the
   current `main`. Need a frozen target for a customer demo? Pin one:
   `git+https://github.com/eric2q/prisma-sase-plugin@v0.9.0`.
