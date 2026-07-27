@@ -1,6 +1,10 @@
 @echo off
 rem Launcher for the prisma-sase MCP server (Windows).
-rem Mirrors mcp/run.sh: picks a Python >= 3.10, in order:
+rem Legacy launcher, kept for venv installs predating 0.9.0 and for hosts with
+rem no uv. The supported path on every OS is now `uvx --from git+...
+rem prisma-sase-mcp`, which needs no launcher at all.
+rem
+rem Mirrors run.sh: picks a Python >= 3.10, in order:
 rem   1. %PRISMA_PYTHON%                       (explicit override, full path)
 rem   2. %USERPROFILE%\.prisma-sase-venv\Scripts\python.exe   (install.bat venv)
 rem   3. py -3.13 / -3.12 / -3.11 / -3.10      (python.org launcher)

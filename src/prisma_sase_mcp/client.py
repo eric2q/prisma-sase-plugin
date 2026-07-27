@@ -78,17 +78,17 @@ def _require_ctx(tsg, region):
     if not region:
         missing.append("PRISMA_REGION (or the region argument)")
     if missing:
-        hint = ("Easiest fix: fill in the plugin's enable dialog (Desktop: "
-                "Settings -> Plugins -> prisma-sase; the Claude Code CLI "
-                "prompts for the same four values on enable), then fully "
-                "restart the app. Without "
-                "that dialog (cloud session, CI, standalone install), put the "
-                "values in ~/.prisma-sase.env (KEY=VALUE lines, chmod 600) or "
-                "set the environment variable(s) -- on macOS, GUI apps often "
-                "do NOT inherit launchctl setenv variables. Or run with "
-                "PRISMA_MOCK=1 to try the tool offline.")
-        # When the host is the cause, lead with that -- the generic advice
-        # above points at a dialog that may be exactly what never ran.
+        hint = ("Easiest fix: run the guided setup -- uvx --from "
+                "git+https://github.com/eric2q/prisma-sase-plugin "
+                "prisma-sase-setup -- which writes the Local MCP servers "
+                "entry for you; then fully restart the app. Alternatives: put "
+                "the values in ~/.prisma-sase.env (KEY=VALUE lines, chmod "
+                "600) or set the environment variable(s) -- on macOS, GUI "
+                "apps often do NOT inherit launchctl setenv variables. Or run "
+                "with PRISMA_MOCK=1 to try the tool offline.")
+        # A malformed value outranks the generic advice above: it means setup
+        # already ran and produced a blank or literal ${...} value, so
+        # "run setup" is the wrong instruction.
         # userconfig_diagnosis() subsumes placeholder_hint().
         diag = config.userconfig_diagnosis()
         if diag:

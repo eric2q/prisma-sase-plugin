@@ -19,8 +19,13 @@ import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MCP = os.path.join(ROOT, "plugin", "mcp")
-UNINSTALL_SH = os.path.join(ROOT, "plugin", "uninstall.sh")
+# 0.9.0 moved the server out of plugin/mcp so uvx can package it. The modules
+# still import each other by bare name, so this stays a sys.path entry rather
+# than becoming a package import.
+MCP = os.path.join(ROOT, "src", "prisma_sase_mcp")
+# The shell helpers moved with the server: plugin/ now holds nothing but the
+# Skill, and these scripts operate on the server's venv, not on the Skill.
+UNINSTALL_SH = os.path.join(MCP, "uninstall.sh")
 
 sys.path.insert(0, MCP)
 os.environ["PRISMA_MOCK"] = "1"
@@ -392,14 +397,21 @@ class VersionLockstep(unittest.TestCase):
                 "this one can only drift out of sight" % entry["name"])
 
 
-class UserConfigBinding(unittest.TestCase):
-    """Every ${user_config.KEY} must resolve against a declared userConfig key.
+class PluginShipsTheSkillOnly(unittest.TestCase):
+    """The plugin must not declare an MCP server. 0.9.0 split them apart.
 
-    0.8.0-0.8.6 declared userConfig in marketplace.json only. A sideloaded
-    session (`claude --plugin-dir ./plugin`) reads plugin.json and never sees
-    marketplace.json, so all four placeholders stayed literal and the server
-    started with no credentials at all. The declaration now lives in the
-    manifest; these tests keep it there.
+    Through 0.8.8 the plugin carried both the Skill and the MCP server, with
+    credentials arriving via ${user_config.*}. That path never worked
+    reliably: 0.8.6 forgot to declare userConfig in the manifest, so sideloads
+    got literal placeholders; 0.8.8 documented a host that enables the plugin
+    without ever showing the dialog, so the same vars arrived empty. Both
+    failures were silent and neither was ours to fix.
+
+    0.9.0 stops fighting it. The MCP server installs as a Local MCP server
+    (uvx, credentials as ordinary env vars); the plugin ships the Skill alone.
+    If a manifest ever declares mcpServers again, the host would launch a
+    second copy of the server alongside the panel's -- duplicate tools, and
+    the broken credential path back with them.
     """
 
     PLACEHOLDER = re.compile(r"\$\{user_config\.([A-Za-z0-9_]+)\}")
@@ -416,49 +428,238 @@ class UserConfigBinding(unittest.TestCase):
         with open(path, encoding="utf-8") as fh:
             return json.load(fh)
 
-    def _placeholders_in(self, blob):
-        import json
-        return set(self.PLACEHOLDER.findall(json.dumps(blob)))
+    def test_manifest_declares_no_mcp_server(self):
+        self.assertNotIn(
+            "mcpServers", self._manifest(),
+            "the plugin ships the Skill only; declaring mcpServers here would "
+            "start a second server next to the Local MCP one")
 
-    def test_manifest_declares_user_config(self):
-        """Without this the sideload path has nothing to bind to."""
-        self.assertTrue(
-            self._manifest().get("userConfig"),
-            "plugin.json must declare userConfig -- marketplace.json is not "
-            "read when the plugin is loaded with --plugin-dir")
+    def test_manifest_declares_no_user_config(self):
+        self.assertNotIn(
+            "userConfig", self._manifest(),
+            "userConfig only means anything alongside an mcpServers block; "
+            "leaving it behind would prompt for credentials nothing reads")
 
-    def test_manifest_placeholders_are_declared(self):
-        manifest = self._manifest()
-        declared = set(manifest.get("userConfig", {}))
-        for key in self._placeholders_in(manifest.get("mcpServers", {})):
-            self.assertIn(
-                key, declared,
-                "manifest uses ${user_config.%s} but does not declare it; it "
-                "would reach the server as a literal placeholder" % key)
-
-    def test_marketplace_overrides_bind_to_the_manifest(self):
-        """An entry may override mcpServers, but it inherits the declaration."""
-        declared = set(self._manifest().get("userConfig", {}))
+    def test_no_entry_reintroduces_a_server(self):
         for entry in self._marketplace()["plugins"]:
-            for key in self._placeholders_in(entry.get("mcpServers", {})):
-                self.assertIn(
-                    key, declared,
-                    "%s uses ${user_config.%s} but the manifest does not "
-                    "declare it" % (entry["name"], key))
+            self.assertNotIn(
+                "mcpServers", entry,
+                "%s overrides mcpServers -- entries inherit the manifest, and "
+                "the manifest no longer ships a server" % entry["name"])
 
-    def test_every_credential_var_is_wired(self):
-        env = self._manifest()["mcpServers"]["prisma-sase"]["env"]
-        for var in ("PRISMA_CLIENT_ID", "PRISMA_CLIENT_SECRET",
-                    "PRISMA_TSG_ID", "PRISMA_REGION"):
-            self.assertIn(var, env, "%s is not passed to the server" % var)
+    def test_no_user_config_placeholders_survive_anywhere(self):
+        import json
+        for label, blob in (("plugin.json", self._manifest()),
+                            ("marketplace.json", self._marketplace())):
+            left = set(self.PLACEHOLDER.findall(json.dumps(blob)))
+            self.assertFalse(
+                left,
+                "%s still references %s; nothing expands those now, so they "
+                "would reach a server as literal text"
+                % (label, ", ".join(sorted(left))))
 
-    def test_the_secret_is_marked_sensitive(self):
-        """sensitive:true keeps it out of settings.json and in secure storage."""
-        spec = self._manifest()["userConfig"]["client_secret"]
-        self.assertTrue(
-            spec.get("sensitive"),
-            "client_secret must be sensitive:true or it lands in plaintext "
-            "settings.json")
+    def test_the_skill_is_present(self):
+        """It is the plugin's entire payload now."""
+        skill = os.path.join(ROOT, "plugin", "skills", "prisma-sase-ops",
+                             "SKILL.md")
+        self.assertTrue(os.path.isfile(skill),
+                        "the plugin has nothing left to ship without %s" % skill)
+
+
+class UvxPackaging(unittest.TestCase):
+    """The Local MCP path is `uvx --from git+... prisma-sase-mcp`.
+
+    uvx resolves the git ref on every launch, which is what makes "push to
+    main" reach users without an install step. That only holds while the
+    package metadata stays consistent with the code: a stale entry point or a
+    dependency that is declared in one place and not the other fails at the
+    user's launch, not in CI.
+    """
+
+    def _pyproject(self):
+        try:
+            import tomllib
+        except ModuleNotFoundError:                    # Python 3.10
+            self.skipTest("tomllib needs Python >= 3.11")
+        with open(os.path.join(ROOT, "pyproject.toml"), "rb") as fh:
+            return tomllib.load(fh)
+
+    def test_version_matches_config(self):
+        ver = self._pyproject()["project"]["version"]
+        self.assertEqual(
+            ver, config.PLUGIN_VERSION,
+            "pyproject is v%s but config.PLUGIN_VERSION is v%s -- uvx would "
+            "install a build whose own logs disagree with it"
+            % (ver, config.PLUGIN_VERSION))
+
+    def test_entry_points_resolve(self):
+        scripts = self._pyproject()["project"]["scripts"]
+        for name, target in (("prisma-sase-mcp",
+                              "prisma_sase_mcp.__main__:main"),
+                             ("prisma-sase-setup",
+                              "prisma_sase_mcp.__main__:setup")):
+            self.assertEqual(
+                scripts.get(name), target,
+                "%s must point at %s -- the README and the setup wizard both "
+                "emit that exact console script" % (name, target))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "_pkg_main", os.path.join(MCP, "__main__.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        for attr in ("main", "setup"):
+            self.assertTrue(callable(getattr(mod, attr, None)),
+                            "__main__.%s is not callable" % attr)
+
+    def test_dependencies_match_requirements_txt(self):
+        """run.sh installs from requirements.txt; uvx installs from pyproject."""
+        declared = set(self._pyproject()["project"]["dependencies"])
+        req = set()
+        with open(os.path.join(MCP, "requirements.txt"), encoding="utf-8") as fh:
+            for line in fh:
+                line = line.split("#", 1)[0].strip()
+                if line:
+                    req.add(line)
+        self.assertEqual(
+            declared, req,
+            "pyproject and requirements.txt disagree; the two launch paths "
+            "would resolve different versions.\n  pyproject only: %s\n  "
+            "requirements only: %s"
+            % (sorted(declared - req), sorted(req - declared)))
+
+    def test_the_package_is_importable_as_a_package(self):
+        """__init__ must not drag in fastmcp -- setup runs before deps exist."""
+        out = subprocess.run(
+            [sys.executable, "-c",
+             "import sys; sys.path.insert(0, %r); "
+             "import prisma_sase_mcp; "
+             "assert not [m for m in ('fastmcp', 'httpx') if m in sys.modules],"
+             " 'importing the package pulled in a heavy dependency'; "
+             "print(prisma_sase_mcp.__name__)"
+             % os.path.join(ROOT, "src")],
+            capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0,
+                         "importing the package failed:\n%s" % out.stderr)
+
+    def test_tools_are_importable_by_package_path(self):
+        """0.9.0 -- SKILL.md calls this the MCP-free escape hatch.
+
+        The Skill tells the assistant it can always fall back to
+        `from prisma_sase_mcp.tools.status import get_sase_status` when the
+        MCP layer is unavailable, and calls that a design guarantee. But every
+        tool module opens with a flat `import config`, and the sys.path shim
+        that makes those resolve lived in __main__ -- so the documented import
+        raised ModuleNotFoundError unless you had gone through the console
+        script. The one path a broken install is supposed to fall back to was
+        the one path that did not work.
+        """
+        out = subprocess.run(
+            [sys.executable, "-c",
+             "import sys; sys.path.insert(0, %r);\n"
+             "from prisma_sase_mcp.tools.status import get_sase_status\n"
+             "from prisma_sase_mcp.tools.alerts import query_alerts\n"
+             "print(get_sase_status()['ok'])" % os.path.join(ROOT, "src")],
+            capture_output=True, text=True,
+            env=dict(os.environ, PRISMA_MOCK="1"))
+        self.assertEqual(out.returncode, 0,
+                         "the fallback SKILL.md documents does not work:\n%s"
+                         % out.stderr)
+        self.assertIn("True", out.stdout)
+
+
+class SetupWizard(unittest.TestCase):
+    """The guided setup replaces the enable dialog the panel does not have.
+
+    Its whole reason to exist is that panel values are plaintext: it puts the
+    secret in the keychain and emits PRISMA_SECRET_CMD instead. A regression
+    that quietly writes the secret into the panel block would look fine and
+    undo the point.
+    """
+
+    def _wizard(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "_setup_wizard", os.path.join(MCP, "setup_wizard.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_entry_uses_secret_cmd_not_a_plaintext_secret(self):
+        w = self._wizard()
+        entry = w._panel_entry("apikey@123.iam.panserviceaccount.com", "123",
+                               "americas", "printf secret")
+        env = entry["env"]
+        self.assertIn("PRISMA_SECRET_CMD", env)
+        self.assertNotIn(
+            "PRISMA_CLIENT_SECRET", env,
+            "the whole point is that the secret is not in the panel")
+
+    def test_entry_without_a_keychain_is_visibly_a_placeholder(self):
+        """No keychain is a real case; it must not look like a working config."""
+        w = self._wizard()
+        env = w._panel_entry("id", "123", "americas", None)["env"]
+        self.assertIn("<paste", env.get("PRISMA_CLIENT_SECRET", ""),
+                      "a blank value would start a server that fails later "
+                      "with no clue why")
+
+    def test_entry_launches_through_uvx_from_git(self):
+        """Anything else loses the auto-update this architecture exists for."""
+        w = self._wizard()
+        entry = w._panel_entry("id", "123", "americas", "cmd")
+        self.assertTrue(entry["command"].endswith("uvx"), entry["command"])
+        self.assertIn("--from", entry["args"])
+        self.assertTrue(any(a.startswith("git+") for a in entry["args"]),
+                        "args must pin a git URL: %s" % entry["args"])
+        self.assertIn("prisma-sase-mcp", entry["args"])
+
+    def test_written_config_is_owner_only_and_keeps_other_servers(self):
+        w = self._wizard()
+        home = tempfile.mkdtemp()
+        try:
+            path = os.path.join(home, "claude_desktop_config.json")
+            import json
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"mcpServers": {"someone-else": {"command": "x"}}}, fh)
+            w._panel_config_path = lambda: path
+            written, action = w._write_panel_config(
+                w._panel_entry("id", "123", "americas", "cmd"))
+            self.assertEqual(action, "added")
+            with open(written, encoding="utf-8") as fh:
+                got = json.load(fh)
+            self.assertIn("someone-else", got["mcpServers"],
+                          "clobbered an unrelated server")
+            self.assertIn("prisma-sase", got["mcpServers"])
+            self.assertEqual(oct(os.stat(written).st_mode & 0o777), "0o600")
+            self.assertTrue(os.path.exists(written + ".bak"),
+                            "no backup was left behind")
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_a_broken_config_is_not_overwritten(self):
+        """Better to fail than to silently discard someone's servers."""
+        w = self._wizard()
+        home = tempfile.mkdtemp()
+        try:
+            path = os.path.join(home, "claude_desktop_config.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("{ this is not json")
+            w._panel_config_path = lambda: path
+            with self.assertRaises(Exception):
+                w._write_panel_config(w._panel_entry("id", "1", "a", "c"))
+            with open(path, encoding="utf-8") as fh:
+                self.assertIn("not json", fh.read())
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_no_secret_is_ever_passed_where_ps_can_read_it(self):
+        """argv is world-readable; only the macOS backend has no stdin mode."""
+        src = open(os.path.join(MCP, "setup_wizard.py"), encoding="utf-8").read()
+        body = src.split("def _store_secret", 1)[1].split("\ndef ", 1)[0]
+        for backend in ("secret-tool", "pass"):
+            chunk = body.split('"%s"' % backend, 1)[1].split("elif", 1)[0]
+            self.assertIn("input=", chunk,
+                          "the %s backend must receive the secret on stdin, "
+                          "not in argv" % backend)
 
 
 class HostSuppliedNothing(unittest.TestCase):
@@ -509,18 +710,38 @@ class HostSuppliedNothing(unittest.TestCase):
         self.assertIn("PRISMA_TSG_ID", result["empty"])
         self.assertEqual(result["kind"], "expanded_empty")
 
-    def test_diagnosis_attributes_the_fault_to_the_host(self):
+    def test_diagnosis_attributes_the_fault_away_from_the_plugin(self):
+        """Empty-not-absent must still exonerate the tenant and the plugin.
+
+        0.9.0 changed WHO gets named -- the Local MCP entry rather than the
+        enable dialog -- but not the property that matters: the user must not
+        be sent to debug their tenant, and must be given a way out.
+        """
         result = self._diagnose(self.ENABLED_NO_CONFIG,
                                 PRISMA_CLIENT_ID="", PRISMA_CLIENT_SECRET="",
                                 PRISMA_TSG_ID="", PRISMA_REGION="sg")
-        self.assertIn("HOST issue", result["msg"])
-        self.assertIn("enable dialog never collected", result["msg"])
+        self.assertIn("EMPTY string(s)", result["msg"])
+        self.assertIn("nothing you change in the plugin", result["msg"])
         # It must also offer a way out, not just an attribution.
-        self.assertIn(".prisma-sase.env", result["msg"])
+        self.assertIn("prisma-sase-setup", result["msg"])
 
-    def test_enabled_with_no_config_entry_is_detected(self):
+    def test_enabled_with_no_config_entry_is_no_longer_a_diagnosis(self):
+        """0.9.0 -- the inverse regression of the one above.
+
+        Through 0.8.x, "enabled but no pluginConfigs entry" meant the enable
+        dialog never ran, because the plugin declared userConfig and so a
+        configured install always had an entry. 0.9.0 removed userConfig: the
+        plugin is a Skill and credentials arrive via the Local MCP entry,
+        which settings.json knows nothing about. That state is now what a
+        CORRECT install looks like, so claiming "this is a HOST issue" here
+        told every new user their working setup was broken and sent them
+        looking for a dialog that no longer exists.
+        """
         result = self._diagnose(self.ENABLED_NO_CONFIG)
-        self.assertEqual(result["kind"], "never_configured")
+        self.assertIsNone(
+            result["kind"],
+            "a Skill-only install with no credentials yet is ordinary, not a "
+            "host fault -- got: %s" % result["msg"])
 
     def test_literal_placeholders_outrank_settings_json(self):
         """Direct evidence from this process beats what settings.json implies."""
@@ -535,9 +756,35 @@ class HostSuppliedNothing(unittest.TestCase):
         self.assertIsNone(result["kind"])
 
     def test_no_diagnosis_without_host_evidence(self):
-        """Credentials absent but no settings.json -- not the host's fault."""
+        """Credentials simply absent -- nobody has run setup yet, no fault."""
         result = self._diagnose(None)
         self.assertIsNone(result["kind"])
+
+    def test_selfcheck_points_a_fresh_install_at_setup(self):
+        """The no-credentials-yet path must offer the fix, not an accusation.
+
+        Pairs with the diagnosis test above: having stopped calling this a
+        host fault, selfcheck still has to tell the user what to actually do.
+        """
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, True)
+        os.makedirs(os.path.join(home, ".claude"))
+        with open(os.path.join(home, ".claude", "settings.json"), "w") as fh:
+            fh.write(self.ENABLED_NO_CONFIG)
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith("PRISMA_")}
+        env["HOME"] = home
+        proc = subprocess.run(
+            [sys.executable, os.path.join(MCP, "server.py"), "--selfcheck"],
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        text = proc.stdout.decode()
+        self.assertIn("prisma-sase-setup", text,
+                      "must name the setup command:\n" + text)
+        for accusation in ("HOST issue", "enable dialog never",
+                           "ENABLED but has NO configuration entry"):
+            self.assertNotIn(accusation, text,
+                             "must not blame the host on a fresh install:\n"
+                             + text)
 
     def test_selfcheck_does_not_claim_the_plugin_is_configured(self):
         """The reassuring 'IS configured' branch must not fire here.
@@ -562,10 +809,9 @@ class HostSuppliedNothing(unittest.TestCase):
         self.assertEqual(proc.returncode, 1,
                          "must exit non-zero:\n" + text)
         self.assertNotIn("The plugin IS configured", text)
-        self.assertIn("ENABLED but has NO configuration entry", text)
         self.assertIn("expanded_empty", text)
 
-    def test_status_tool_blames_the_host_not_the_tenant(self):
+    def test_status_tool_blames_the_config_not_the_tenant(self):
         """Desktop users only reach the tools -- the verdict must be there."""
         home = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, home, True)
@@ -588,8 +834,9 @@ class HostSuppliedNothing(unittest.TestCase):
         result = json.loads(out.stdout.decode())
         self.assertIsNotNone(result["cns"],
                              "get_sase_status must carry the verdict")
-        self.assertEqual(result["cns"]["whose_fault"], "host")
-        self.assertIn("host configuration problem", result["headline"])
+        self.assertEqual(result["cns"]["whose_fault"], "configuration")
+        self.assertIn("configuration problem", result["headline"])
+        self.assertNotIn("tenant problem.", result["headline"].split("not a")[0])
 
 
 @unittest.skipIf(os.name == "nt", "setup-keychain.sh is POSIX-only")
@@ -600,7 +847,7 @@ class KeychainSetupScript(unittest.TestCase):
     matters is: whatever it writes, the secret is not in it.
     """
 
-    SCRIPT = os.path.join(ROOT, "plugin", "setup-keychain.sh")
+    SCRIPT = os.path.join(MCP, "setup-keychain.sh")
     SECRET = "CANARY-KEYCHAIN-SECRET"
 
     def setUp(self):

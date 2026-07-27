@@ -1,5 +1,72 @@
 # Changelog
 
+## 0.9.0 — 2026-07-27
+
+**The plugin split in two.** The MCP server is no longer mounted by the
+plugin; it installs as a **Local MCP server** launched through `uvx`, and the
+plugin ships the `prisma-sase-ops` Skill alone.
+
+The reason is the update cadence. A plugin is cached per version
+(`~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`), so a server fix
+reached you only when you explicitly clicked Update. `uvx --from git+...`
+re-resolves this repo on **every app launch** — so a fix pushed today is
+running on your machine after your next restart, with nothing to click. For a
+component that talks to a live API and whose bugs arrive as field reports,
+that is the cadence it needed.
+
+**What you have to do once:**
+
+```bash
+uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
+```
+
+Existing 0.8.x installs keep working until you migrate; the venv launchers
+(`run.sh` / `run.cmd` / `install.sh`) are still shipped, now as the legacy
+path. See the README for the full walkthrough.
+
+- **NEW:** `prisma-sase-setup` — a guided credential installer. Asks for the
+  four values with an explanation of each, detects the TSG ID from your Client
+  ID, stores the Client Secret in your OS keychain, and writes the Local MCP
+  servers entry for you. `--print` shows the JSON and writes nothing;
+  `--show` reports what is already stored, revealing no secret. It never
+  writes a plaintext secret into the entry: what goes in is a
+  `PRISMA_SECRET_CMD` line, so the secret itself stays in the keychain.
+- **NEW:** the server auto-updates. No pinned ref means every launch gets the
+  current `main`. Need a frozen target for a customer demo? Pin one:
+  `git+https://github.com/eric2q/prisma-sase-plugin@v0.9.0`.
+- **NEW:** the entry sets `PATH` explicitly, because the app does not give MCP
+  servers a login shell's `PATH` and `uvx: command not found` was otherwise
+  the first thing everyone hit.
+- **FIX (diagnosis, high):** the plugin **stopped accusing correctly-installed
+  users of a host bug.** 0.8.8 treated "enabled, but `settings.json` holds no
+  `pluginConfigs` entry" as proof the enable dialog never ran — a sound
+  inference *while the plugin declared `userConfig`*. 0.9.0 removed
+  `userConfig`, which makes that state exactly what a **correct** install looks
+  like. Every new user was being told "This is a HOST issue" and sent hunting
+  for a dialog that no longer exists. The `never_configured` diagnosis is gone;
+  only evidence that actually arrived at this process (a value that is blank,
+  or a literal `${...}`) is reported now, as a *configuration* problem rather
+  than a host one. Absence of evidence stopped being evidence when the
+  architecture moved.
+- **FIX:** `--selfcheck` no longer says NOT READY when it simply cannot see
+  the Local MCP entry's `env` — which, by design, it never can from an
+  ordinary shell. It now says so and points at setup.
+- **FIX:** `from prisma_sase_mcp.tools.status import get_sase_status` — the
+  MCP-free escape hatch the Skill documents as a design guarantee — actually
+  works. The `sys.path` shim lived only in `__main__`, so the documented import
+  raised `ModuleNotFoundError` unless you came in through the console script.
+  Both this and the misdiagnosis above are pinned by regression tests.
+- **CHG:** one marketplace entry (`prisma-sase`) instead of three. With no
+  launcher in the plugin there is nothing to vary per OS, so
+  `prisma-sase-mac` / `-linux` / `-windows` are retired along with the "match
+  your OS" instruction. `tools/build-standalone.py` now emits a single
+  `dist/prisma-sase.plugin`, and fails the build if anything re-introduces
+  `mcpServers` or `userConfig` into the plugin — that would launch a second,
+  version-pinned copy of the server alongside the uvx one.
+- **CHG:** `mcp/` moved to `src/prisma_sase_mcp/` (a proper Python package with
+  `pyproject.toml`), and the version now has a fourth declaration point,
+  `pyproject.toml`, checked in lockstep with the other three.
+
 ## 0.8.8 — 2026-07-27
 
 The **host** enables the plugin without ever running the `userConfig` dialog,

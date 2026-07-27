@@ -82,15 +82,16 @@ def get_sase_status(tsg_id=None, region=None):
         out["credentials_not_supplied"] = {
             "kind": diag["kind"],
             "detail": diag["message"],
-            "whose_fault": "host",
-            "action": ("Do not debug the tenant or the plugin: no credentials "
-                       "reached this server. Relay the detail above to the "
-                       "user verbatim."),
+            "whose_fault": "configuration",
+            "action": ("Do not debug the tenant or the plugin: the "
+                       "credentials that reached this server were blank or "
+                       "unsubstituted. Relay the detail above to the user "
+                       "verbatim."),
         }
         out["headline"] = (
-            "UNKNOWN: no credentials reached the plugin (%s) -- tenant status "
-            "cannot be determined. This is a host configuration problem, not "
-            "a tenant problem." % diag["kind"])
+            "UNKNOWN: credentials reached the plugin malformed (%s) -- tenant "
+            "status cannot be determined. This is a configuration problem, "
+            "not a tenant problem." % diag["kind"])
     stale = config.stale_version_check()
     if stale:
         # The host kept an old server process alive across an update, so this

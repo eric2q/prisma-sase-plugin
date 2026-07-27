@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Remove everything this plugin created OUTSIDE its own directory.
+# Remove everything this project created OUTSIDE its own directory.
 #
-# Why this exists: `claude plugin uninstall` removes the plugin tree, its
-# registry entries and its data dir -- but install.sh deliberately creates
-# artifacts in your HOME (a ~100 MB virtualenv, a credential file, a launch
-# log) that no host uninstaller knows about. A live removal session had to
-# reverse-engineer that list. This script is that list, executable.
+# Why this exists: uninstalling the Skill plugin, or deleting the Local MCP
+# servers entry, leaves the artifacts in your HOME behind -- install.sh's
+# ~100 MB virtualenv, the credential file, the launch log. No host uninstaller
+# knows about those. A live removal session had to reverse-engineer the list.
+# This script is that list, executable.
 #
 # Usage:
 #   bash uninstall.sh              # show the plan, then ask before deleting
@@ -78,12 +78,17 @@ if [ ${#targets[@]} -eq 0 ]; then
 fi
 
 echo ""
-echo "NOT handled here (run these yourself -- they are the host's to remove):"
-echo "  claude plugin uninstall prisma-sase-mac@prisma-sase   # or -linux / -windows"
-echo "  claude plugin marketplace remove prisma-sase"
-echo "  (Claude Desktop: Settings > Plugins > uninstall, then remove the marketplace)"
-echo "  Those clear the plugin tree, installed_plugins.json, enabledPlugins and"
-echo "  pluginConfigs -- including the Client Secret held in OS secure storage."
+echo "NOT handled here (do these yourself -- they are not files in your HOME):"
+echo "  1. The Local MCP servers entry named 'prisma-sase'. Settings >"
+echo "     Extensions/Connectors > Local MCP servers > remove it. That entry"
+echo "     holds PRISMA_CLIENT_ID / TSG / REGION in plaintext."
+echo "  2. The Skill plugin, if you installed it:"
+echo "       claude plugin uninstall prisma-sase@prisma-sase"
+echo "       claude plugin marketplace remove prisma-sase"
+echo "  3. The Client Secret in your OS keychain, if setup put it there:"
+echo "       macOS: security delete-generic-password -s prisma-sase -a client_secret"
+echo "       Linux: secret-tool clear service prisma-sase key client_secret"
+echo "       pass:  pass rm prisma-sase/client_secret"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo ""

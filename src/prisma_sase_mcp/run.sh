@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Launcher for the prisma-sase MCP server.
 #
+# Legacy path since 0.9.0: the supported launch is `uvx --from git+...
+# prisma-sase-mcp`, which brings its own interpreter and needs no wrapper.
+# This is kept for venv installs made before 0.9.0 and for hosts with no uv.
+#
 # Why this exists (v0.2.0): hard-coding "command": "python3" broke on macOS,
 # where the system python3 is often 3.9 (< fastmcp's 3.10 floor) -- the server
 # died silently and the tools never appeared. This wrapper picks a suitable

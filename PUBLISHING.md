@@ -1,31 +1,56 @@
 # Maintainer guide — publishing releases
 
+## The one thing to internalise first
+
+Since 0.9.0 this repo ships **two halves that reach users by completely
+different routes**:
+
+| Half | Route | When the user gets it |
+|---|---|---|
+| **MCP server** (`src/prisma_sase_mcp/`) | `uvx --from git+https://github.com/eric2q/prisma-sase-plugin` | **the moment you push to `main`**, on their next app launch |
+| **Skill** (`plugin/`) | the plugin marketplace | when they run Update, or a background refresh picks it up |
+
+The consequence is blunt: **pushing to `main` is a release of the server.**
+There is no staging, no "I'll tag it later", no installed copy to lag behind —
+uvx re-resolves the git ref every launch. A broken commit on `main` is a broken
+tool call on somebody's laptop within minutes. Work on a branch, merge when the
+checks below pass.
+
+The Skill half is the opposite: it is cached under a pinned version, so a
+Skill change only ships after a version bump *and* a user-side update. Write
+Skill prose so it stays true across a server release or two.
+
 ## First-time: put this repo on GitHub
 
 ```bash
-cd prisma-sase-marketplace
+cd prisma-sase-plugin
 git init -b main
 git add -A
-git commit -m "prisma-sase marketplace v0.6.1"
+git commit -m "prisma-sase v0.9.0"
 # public or internal org repo both work; private works with the caveats in README
 gh repo create eric2q/prisma-sase-plugin --private --source . --push
 # (or create the repo in the GitHub UI and: git remote add origin <url> && git push -u origin main)
 ```
 
-Then tell the team the repo slug — that's all they need for
-**Add marketplace → Add from a repository**.
+Then tell the team two things: the one-line setup command (below), and the repo
+slug for **Add marketplace → Add from a repository** if they also want the Skill.
+
+```bash
+uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
+```
 
 ## Releasing an update
 
-1. Edit code / skills under `plugin/`.
-2. Smoke test offline (no credentials needed):
+1. Edit code under `src/prisma_sase_mcp/` and/or the Skill under `plugin/`.
+2. Smoke test offline (no credentials, no network):
    ```bash
-   PRISMA_MOCK=1 python3 plugin/mcp/server.py --selfcheck
+   PRISMA_MOCK=1 python3 src/prisma_sase_mcp/server.py --selfcheck
    ```
-   Then run the regression suite — stdlib only, no network, no credentials.
-   It pins the shipped bugs (tunnel-state honesty, uninstall deletion,
-   env-file resolution, secret non-disclosure) and checks the version
-   lockstep of step 4 for you:
+   Then run the regression suite — stdlib only. It pins the shipped bugs
+   (tunnel-state honesty, uninstall deletion, env-file resolution, secret
+   non-disclosure, the setup wizard's refusal to write a plaintext secret,
+   the credential-diagnosis wording) and checks the version lockstep of
+   step 4 for you:
    ```bash
    python3 tools/test-regressions.py
    ```
@@ -34,161 +59,160 @@ Then tell the team the repo slug — that's all they need for
    ```bash
    claude plugin validate ./plugin && claude plugin validate .
    ```
-3. Record changes in `plugin/CHANGELOG.md` — this is the **user-facing version
+3. **Exercise the real uvx path from a clean cache.** This is the only check
+   that proves what users will actually run, and it is the one that catches a
+   packaging mistake the local `python3` invocation above cannot see (a module
+   missing from the wheel, a dependency you had installed globally, an entry
+   point that does not resolve):
+   ```bash
+   uvx --refresh --from git+https://github.com/eric2q/prisma-sase-plugin@<branch> \
+       prisma-sase-mcp --selfcheck
+   ```
+   `--refresh` bypasses uv's cached build of the ref — without it you may be
+   testing yesterday's tree. Substitute your branch before merging; after
+   merging, re-run it with no `@ref` so it resolves `main` exactly as a user's
+   launch does.
+4. Record changes in `plugin/CHANGELOG.md` — this is the **user-facing version
    history** (linked from both root READMEs), so write it for users: what was
    fixed (`FIX`), what's new (`NEW`), what behaves differently (`CHG`).
-4. **Bump the version in THREE places, in lockstep**:
-   - `plugin/.claude-plugin/plugin.json` — the authoritative one. Claude Code
-     always prefers the manifest's version, on both load paths.
+5. **Bump the version in FOUR places, in lockstep**:
+   - `plugin/.claude-plugin/plugin.json` — authoritative for the Skill. Claude
+     Code always prefers the manifest's version, on both load paths.
    - `metadata.version` in `.claude-plugin/marketplace.json` — the catalog's
      own version.
-   - `PLUGIN_VERSION` in `plugin/mcp/config.py` — what the server reports in
-     its startup log, `--selfcheck`, and `get_sase_status.plugin_version`, so
-     a user can ask Claude which version they're running.
+   - `version` in `pyproject.toml` — what uvx actually builds. New since
+     0.9.0; forgetting it is silent, because uvx resolves by git ref and never
+     consults the version.
+   - `PLUGIN_VERSION` in `src/prisma_sase_mcp/config.py` — what the server
+     reports in its startup log, `--selfcheck`, and
+     `get_sase_status.plugin_version`, so a user can ask Claude which version
+     they're running.
 
-   The three **plugin entries** carry no `version` of their own and must not
-   gain one: the manifest always wins, so an entry version can't take effect —
-   it can only go stale unnoticed. `tools/build-standalone.py` fails on drift
-   *and* on a re-introduced entry version:
+   The **plugin entry** carries no `version` of its own and must not gain one:
+   the manifest always wins, so an entry version can't take effect — it can
+   only go stale unnoticed. `tools/build-standalone.py` fails on drift across
+   all four *and* on a re-introduced entry version:
    ```bash
    python3 tools/build-standalone.py && rm -rf dist   # errors out on drift
    ```
-5. Commit + push:
+6. Commit + push:
    ```bash
-   git add -A && git commit -m "v0.7.0: <summary>" && git push
+   git add -A && git commit -m "v0.9.0: <summary>" && git push
    ```
-6. Users get it via **Settings → Plugins → Update** / `/plugin marketplace
-   update prisma-sase` (or background refresh).
+   The server is live for every user at this point. The Skill is not.
+7. Skill users get it via **Settings → Plugins → Update** / `/plugin
+   marketplace update prisma-sase` (or background refresh).
 
-> Prefer zero-ceremony releases? Delete `version` from
-> `plugin/.claude-plugin/plugin.json` too — Claude then tracks the git commit
-> SHA and every push becomes an update. An explicit version is recommended: it
-> gates what users see and matches the CHANGELOG. (Deleting it from the plugin
-> *entries* achieves nothing — they no longer carry one; the manifest is what
-> Claude reads.)
+### Pinning, for users who need a stable target
 
-## Why one code tree but three catalog entries
+A customer demo laptop that must not change under you can pin the ref:
 
-A plugin's MCP launch command is a single string, and no command exists on all
-three OSes (`bash` is missing on Windows; `cmd` is missing on macOS/Linux).
-The marketplace catalog solves this: all three entries (`prisma-sase-mac`,
-`prisma-sase-linux`, `prisma-sase-windows`) point at the same `./plugin`
-source, and Windows overrides `mcpServers` with `cmd /c mcp\run.cmd`. One push
-updates all three.
+```json
+"args": ["--from", "git+https://github.com/eric2q/prisma-sase-plugin@v0.9.0",
+         "prisma-sase-mcp"]
+```
 
-**Everything else belongs in `plugin/.claude-plugin/plugin.json`, not in the
-entries.** That manifest is the single source of truth for `userConfig`, the
-default bash launcher, and the version. The entries carry only per-OS
-presentation (`name` / `description` / `keywords`) plus the Windows launcher.
+That trades auto-update for reproducibility. Tag releases (`git tag v0.9.0 &&
+git push --tags`) so this option exists even if nobody uses it today.
 
-This is not a style preference — it is the fix for the 0.8.7 credential bug.
-A marketplace install reads `marketplace.json`; a `--plugin-dir` session reads
-**only** the manifest and never sees the catalog at all. Anything declared
-solely in an entry silently does not exist on the sideload path. Through 0.8.6
-`userConfig` lived only in the entries and there was no manifest, so every
-sideloaded session passed the literal string `${user_config.client_id}` to the
-server and every tool failed for want of credentials. Declaring it in the
-manifest makes both paths agree.
+## Why the server left the plugin
 
-(Consequence: the entries are `"strict": true`, the default. Under
-`strict: false` a component-declaring manifest inside the plugin is a
-documented conflict, so keeping both was never an option.)
+Through 0.8.x the plugin mounted the MCP server itself, via a `mcpServers`
+block and a `bash mcp/run.sh` launcher. Two things made that untenable:
 
-The lockstep rule is machine-enforced: `tools/build-standalone.py` fails if
-the three entries differ on anything other than `name` / `description` /
-`keywords` / `mcpServers`, if mac or linux re-introduces an `mcpServers`
-override, if Windows loses one, or if any entry re-introduces a `version`.
-`tools/test-regressions.py` additionally fails if the manifest stops declaring
-`userConfig`, if any `${user_config.*}` names an undeclared key, or if
-`client_secret` loses `sensitive: true`.
+**The plugin cache is version-pinned.** Claude Code installs a plugin into
+`~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/` and runs *that*
+copy. A server fix reached users only when they explicitly updated. For a
+component that talks to a live API and whose bugs are field-reported, that is
+the wrong update cadence.
 
-## Testing a build locally (`--plugin-dir`) — the `@inline` trap
+**A launch command is a single string, and no command exists on all three
+OSes** (`bash` is missing on Windows; `cmd` is missing on macOS/Linux). The
+0.8.x workaround was three marketplace entries — `prisma-sase-mac`,
+`prisma-sase-linux`, `prisma-sase-windows` — differing only in their launcher.
+Three identities to keep in lockstep, three chances to drift, and a permanent
+"match your OS" instruction in the install docs.
 
-`claude --plugin-dir ./plugin` is the fastest way to exercise a change, but it
-is **not** the same load path as a marketplace install, and the difference
-will waste an afternoon if you do not know it:
+uvx solves both at once: one command that works everywhere, re-resolved from
+git on every launch. So 0.9.0 collapsed the three entries into one
+`prisma-sase` plugin that ships the **Skill alone**, and moved the server to a
+Local MCP entry the user's host launches directly.
+
+`tools/build-standalone.py` enforces the split: it fails if `plugin.json` or
+any marketplace entry declares `mcpServers` or `userConfig`. Re-adding either
+would quietly launch a *second*, version-pinned copy of the server alongside
+the uvx one — two servers claiming the same tool names, one of them stale.
+`userConfig` is gone for the same reason: credentials now arrive through the
+Local MCP entry's `env` block, and a declared-but-unused `userConfig` would
+resurrect the enable dialog that 0.8.7's credential bug lived in.
+
+## Testing the Skill locally (`--plugin-dir`)
 
 ```bash
 claude --plugin-dir /path/to/repo/plugin        # sideload; reads plugin.json only
 ```
 
 A sideloaded plugin gets a synthetic marketplace named `inline`, so its
-identity is **`prisma-sase-mac@inline`** — not `prisma-sase-mac`, and not the
-`prisma-sase-mac@prisma-sase` that the marketplace install uses. Your normal
-credentials in `~/.claude/settings.json` are filed under the marketplace id
-and will **not** be found.
+identity is **`prisma-sase@inline`**, not `prisma-sase@prisma-sase`. That
+mattered enormously through 0.8.x, when credentials were filed in
+`~/.claude/settings.json` under the plugin identity and the mismatch produced
+a silent empty-string substitution.
 
-The failure mode is nasty: an unrecognised `pluginConfigs` key produces no
-warning. Substitution just resolves to an empty string, so the server starts
-happily and every tool reports missing credentials — which looks identical to
-"the plugin is broken."
-
-To supply credentials to a sideloaded session, use a settings file keyed on
-`@inline`:
-
-```json
-{
-  "pluginConfigs": {
-    "prisma-sase-mac@inline": {
-      "options": {
-        "client_id": "…",
-        "client_secret": "…",
-        "tsg_id": "…",
-        "region": "…"
-      }
-    }
-  }
-}
-```
-
-```bash
-claude --plugin-dir /path/to/repo/plugin --settings ~/.prisma-sase-dev.json
-```
-
-> **The secret is plaintext here.** Sideloading never shows the enable dialog
-> (the plugin is auto-enabled and never prompts), so there is no path that
-> writes to the Keychain. `chmod 600` the file, keep it **outside the repo**,
-> and never commit it. If you would rather not have a plaintext secret at all,
-> leave `client_secret` out and let the server pick it up from
-> `~/.prisma-sase.env` / `PRISMA_SECRET_CMD` instead.
-
-To verify a change actually binds — without printing any credential:
-
-```bash
-claude --plugin-dir /path/to/repo/plugin --settings ~/.prisma-sase-dev.json mcp list
-```
-
-`✔ Connected` only proves the process started. To prove the *values* arrived,
-have `run.sh` report presence and length (never the value) on first line, or
-check `plugin_version` and the credential status via `get_sase_status`.
+**Since 0.9.0 it barely matters.** The plugin carries no `userConfig` and no
+server, so there is nothing identity-keyed left to get wrong: the Skill loads,
+and the tools come from the Local MCP entry regardless of how the Skill was
+loaded. Sideload freely.
 
 `@inline` is not in the Claude Code docs — it is inferred from the
 `~/.claude/plugins/data/<name>-inline/` directory and confirmed empirically on
 2.1.219. Re-check it if a future release changes sideload identity.
 
-## Standalone .plugin files (optional)
+### Testing the server against a real tenant
 
-For machines that cannot reach the git host (customer demo laptops, air-gapped),
-build the classic file-upload packages:
+Credentials for development go through the same guided setup users run — there
+is no separate dev path any more, and `--print` lets you inspect the entry
+without writing it:
 
 ```bash
-python3 tools/build-standalone.py        # writes dist/prisma-sase-{mac,linux,windows}.plugin
+uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup --print
+uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup --show
 ```
 
-Each bundle starts from the real `plugin/.claude-plugin/plugin.json` and
-overlays only the per-OS name/description/keywords and, for Windows, the
-launcher. That is deliberate: synthesising a manifest from `marketplace.json`
-(as this did through 0.8.6) shipped bundles with **no `userConfig`**, so the
-file-upload install had the same credential failure as the sideload path.
+To exercise your **working tree** rather than a pushed ref, point `--from` at
+the local path:
+
+```bash
+uvx --from . prisma-sase-mcp --selfcheck
+```
+
+`--show` reports what is already stored without printing the secret. Keep it
+that way: nothing in this repo should ever echo a credential value.
+
+## Standalone .plugin file (optional)
+
+For machines that cannot reach the git host, build the file-upload package:
+
+```bash
+python3 tools/build-standalone.py        # writes dist/prisma-sase.plugin
+```
+
+One zip now, not three — with no launcher in the plugin there is nothing to
+vary per OS. Note what this does *not* solve: the zip contains the **Skill
+only**. A machine that cannot reach GitHub also cannot run `uvx --from
+git+...`, so it has no tools either. For a genuinely air-gapped install the
+server has to be vendored separately (`uv pip install .` into a venv on the
+target, with a Local MCP entry pointing at that venv's `prisma-sase-mcp`).
 
 ## Release checklist
 
-- [ ] `PRISMA_MOCK=1 ... --selfcheck` passes
+- [ ] `PRISMA_MOCK=1 python3 src/prisma_sase_mcp/server.py --selfcheck` passes
 - [ ] `python3 tools/test-regressions.py` passes
 - [ ] `claude plugin validate ./plugin && claude plugin validate .` both pass
+- [ ] `uvx --refresh --from git+…@<branch> prisma-sase-mcp --selfcheck` passes — the real user launch path, from a cold cache
 - [ ] `python3 tools/build-standalone.py && rm -rf dist` succeeds (version + entry drift check)
 - [ ] `plugin/CHANGELOG.md` updated
-- [ ] version bumped in **three** places: `plugin/.claude-plugin/plugin.json`, `metadata.version`, `config.PLUGIN_VERSION` (entries carry none)
+- [ ] version bumped in **four** places: `plugin/.claude-plugin/plugin.json`, `metadata.version`, `pyproject.toml`, `config.PLUGIN_VERSION` (the entry carries none)
 - [ ] no secrets anywhere in the tree (`git grep -iE "client_secret\s*=" -- ':!*.md'` should find only code reading env vars), and no dev settings file committed
 - [ ] push, then **re-clone from GitHub** and re-run the checks there — the 0.8.7 bug was an untracked file that passed every local check
-- [ ] verify the update appears on one team machine before announcing
+- [ ] re-run the uvx check with **no `@ref`** so it resolves `main`, exactly as a user's next app launch will
+- [ ] verify on one team machine before announcing: full restart (⌘Q, not window close), then ask Claude for `get_sase_status` and confirm `plugin_version`

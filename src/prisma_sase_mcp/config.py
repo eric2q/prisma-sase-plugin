@@ -37,7 +37,7 @@ import sys
 # in-conversation. MUST be bumped in lockstep with .claude-plugin/
 # marketplace.json (all three entries); tools/build-standalone.py fails the
 # build on a mismatch, and PUBLISHING.md documents the step.
-PLUGIN_VERSION = "0.8.8"
+PLUGIN_VERSION = "0.9.0"
 
 # --- Fixed, verified facts (design doc sec.3 -- do NOT change) ---------------
 AUTH_URL = "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
@@ -386,12 +386,13 @@ def placeholder_hint():
     if not PLACEHOLDER_VARS:
         return None
     return (
-        "Values for %s arrived as literal ${...} placeholders -- the MCP host "
-        "passed them through without expanding. ${user_config.*} means your "
-        "host is too old to expand the plugin enable dialog; ${PRISMA_*} "
-        "means a stale pre-0.2.0 .mcp.json env block. Either way, upgrade "
-        "the host/plugin, or fall back to ~/.prisma-sase.env (KEY=VALUE "
-        "lines, chmod 600)." % ", ".join(PLACEHOLDER_VARS)
+        "Values for %s arrived as literal ${...} placeholders -- whatever "
+        "launched this server passed them through without substituting. A "
+        "${...} in the Local MCP servers entry is the usual cause: that env "
+        "block is literal, so write the real value there rather than a "
+        "reference. ${user_config.*} instead means a legacy pinned plugin "
+        "install on a host too old to expand it; ${PRISMA_*} means a stale "
+        "pre-0.2.0 .mcp.json env block." % ", ".join(PLACEHOLDER_VARS)
     )
 
 
@@ -552,29 +553,35 @@ def plugin_config_snapshot():
 
 
 def userconfig_diagnosis():
-    """Explain a credential gap that the HOST caused, or None if it didn't.
+    """Explain a credential gap that something OUTSIDE this server caused.
 
-    Three host-side failure shapes, each with a different fix. Checked in
-    order of how specific the evidence is -- what actually arrived in this
-    process beats what settings.json implies, because settings.json is read
-    from any shell while the env vars are only meaningful in the
-    host-launched process:
+    Two shapes survive in the 0.9.0 architecture, both resting on direct
+    evidence from this process -- a value that actually arrived, and arrived
+    wrong:
 
-    * ``unexpanded`` -- literal ${...} arrived; the host does not support the
-      substitution at all. Checked FIRST: it is direct evidence from this
-      process, and its fix (upgrade the host) differs from the others.
-    * ``expanded_empty`` -- required vars arrived as empty strings. The host
-      understood ${user_config.*} and substituted nothing, so the enable
-      dialog never collected anything. Confirmed on the Cowork
-      marketplace-cache surface, where settings.json showed the plugin in
-      enabledPlugins with no pluginConfigs entry at all.
-    * ``never_configured`` -- neither of the above (typically a hand-run
-      shell, which sees none of the host's env), but settings.json says
-      enabled-with-no-config. Weakest evidence, so it is the last resort.
+    * ``unexpanded`` -- literal ${...} arrived. Something is passing a
+      placeholder through without substituting it: a Local MCP entry with a
+      ``${...}`` in its env block, or a legacy pinned plugin install on a
+      host too old to expand ``${user_config.*}``. Checked FIRST, because its
+      fix (write the real value / upgrade the host) differs from the other.
+    * ``expanded_empty`` -- required vars arrived as empty strings. Something
+      set the name and gave it no value: an env key present-but-blank in the
+      Local MCP entry, or a legacy enable dialog that collected nothing.
 
-    Returns None when credentials are fine or when the gap has a non-host
-    explanation, so callers can add this to an error without it ever becoming
-    noise on a healthy install.
+    Deliberately NOT a diagnosis any more: "the plugin is enabled but
+    settings.json holds no pluginConfigs entry for it". Through 0.8.x that
+    implied the enable dialog never ran, because the plugin declared
+    ``userConfig`` and a configured install therefore always had an entry.
+    0.9.0 removed ``userConfig`` -- the plugin ships the Skill alone and
+    credentials reach the server through the Local MCP entry, which
+    settings.json knows nothing about. So that state is now what a CORRECT
+    install looks like, and reporting it told every new user "This is a HOST
+    issue" and sent them hunting for a dialog that no longer exists.
+    Absence of evidence stopped being evidence when the architecture moved.
+
+    Returns None when credentials are fine or when the gap has an ordinary
+    explanation (nobody has run setup yet), so callers can attach this to an
+    error without it ever becoming noise on a healthy install.
     """
     required = ("PRISMA_CLIENT_ID", "PRISMA_CLIENT_SECRET", "PRISMA_TSG_ID",
                 "PRISMA_REGION")
@@ -582,48 +589,30 @@ def userconfig_diagnosis():
         return None
 
     empty = [n for n in EMPTY_VARS if n in required]
-    snapshot = plugin_config_snapshot()
-    unconfigured = bool((snapshot or {}).get("enabled_but_unconfigured"))
 
-    fix = ("Fix: supply the four values another way -- ~/.prisma-sase.env "
-           "(chmod 600) or PRISMA_SECRET_CMD for the secret -- and fully "
-           "restart the app (Desktop: Cmd-Q; CLI: /reload-plugins). "
-           "PRISMA_MOCK=1 runs every tool offline meanwhile.")
+    fix = ("Fix: run the guided setup -- uvx --from "
+           "git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup "
+           "-- which writes the Local MCP entry for you, then fully restart "
+           "the app (Desktop: Cmd-Q; CLI: /reload-plugins). PRISMA_MOCK=1 "
+           "runs every tool offline meanwhile.")
 
     if PLACEHOLDER_VARS:
         return {
             "kind": "unexpanded",
             "vars": list(PLACEHOLDER_VARS),
-            "enabled_but_unconfigured": unconfigured,
             "message": (placeholder_hint() or "") + " " + fix,
         }
     if empty:
         return {
             "kind": "expanded_empty",
             "vars": list(empty),
-            "enabled_but_unconfigured": unconfigured,
             "message": (
-                "The host set %s to EMPTY string(s). That means it expanded "
-                "${user_config.*} but had nothing to expand -- the plugin's "
-                "enable dialog never collected these values. This is a HOST "
-                "issue, not a plugin misconfiguration: nothing you change in "
-                "the plugin will populate them.%s %s"
-                % (", ".join(empty),
-                   (" Confirmed here: the host's settings.json lists this "
-                    "plugin as enabled but holds no configuration entry for "
-                    "it.") if unconfigured else "",
-                   fix)),
-        }
-    if unconfigured:
-        return {
-            "kind": "never_configured",
-            "vars": [],
-            "enabled_but_unconfigured": True,
-            "message": (
-                "The host's settings.json lists this plugin as ENABLED but "
-                "holds no configuration entry for it, so the enable dialog "
-                "never ran and no credentials were ever stored. This is a "
-                "HOST issue. " + fix),
+                "%s arrived as EMPTY string(s) -- set, but with nothing in "
+                "them. Something is supplying the names without the values: "
+                "most likely a blank env key in the Local MCP servers entry "
+                "for 'prisma-sase'. This is a configuration problem outside "
+                "this server; nothing you change in the plugin will populate "
+                "them. %s" % (", ".join(empty), fix)),
         }
     return None
 
