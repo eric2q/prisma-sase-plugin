@@ -77,7 +77,6 @@ function RunCmd($commandLine) {
 }
 
 Write-Host "  python : $($py.Source)"
-Write-Host "  arch   : $env:PROCESSOR_ARCHITECTURE"
 Write-Host "  repo   : $repo"
 Write-Host "  temp   : $tempBase  (throwaway LOCALAPPDATA)"
 Write-Host ""
@@ -104,13 +103,21 @@ print(json.dumps({
     'path': w._panel_path(),
     'config': w._panel_config_dirs()[0],
     'uvxargs': ' '.join(w._uvx_args()),
+    'machine': w.platform.machine(),
 }))
 "@
 $g = & $py.Source -c $gen | ConvertFrom-Json
 $blob = $g.blob
 
 Write-Host "-- what the wizard reports on this machine --"
+# platform.machine(), not $env:PROCESSOR_ARCHITECTURE. The two differ on ARM
+# Windows: the env var gives the *process* architecture and reads AMD64 inside
+# an emulated x64 shell, while platform.machine() prefers PROCESSOR_ARCHITEW6432
+# and so reports the real machine. The code branches on the latter, so that is
+# what has to be shown here -- printing the other one told us nothing.
 Write-Host "  backend      : $($g.backend)"
+Write-Host "  machine      : $($g.machine)   (process: $env:PROCESSOR_ARCHITECTURE)"
+Write-Host "  uvx args     : $($g.uvxargs)"
 Write-Host "  config dir   : $($g.config)"
 Write-Host "  panel PATH   : $($g.path)"
 Write-Host ""
@@ -189,6 +196,33 @@ Check "git is reachable too (uvx needs it for the git+ ref)" {
         $v = (RunCmd "git --version").Trim()
         if ($LASTEXITCODE -eq 0) { $true }
         else { "git not on the emitted PATH -- uvx cannot resolve the ref" }
+    } finally { $env:PATH = $saved }
+}
+
+Check "the interpreter uvx resolves is one with wheels" {
+    # A green --selfcheck does not prove the ARM64 branch worked: uv caches, so
+    # a run that compiled cryptography once will pass instantly ever after, and
+    # look identical to a run that never needed to. Ask the resolved interpreter
+    # what it is instead. On ARM64 this must come back x86, because that is the
+    # whole point -- win_amd64 wheels exist and win_arm64 ones do not.
+    $saved = $env:PATH
+    try {
+        $env:PATH = $g.path
+        # Everything the wizard passes uvx except the package itself. `uv run`
+        # resolves an interpreter by the same rules and needs no package, so it
+        # answers the question without installing anything.
+        $sel = $g.uvxargs -replace ' --from .*$', ''
+        $out = RunCmd "uv run $sel python -c \"import platform;print('MACHINE='+platform.machine())\""
+        if ($out -notmatch 'MACHINE=(\S+)') { return "no answer from the interpreter:`n$($out.Trim())" }
+        $got = $Matches[1]
+
+        if ($g.machine -match '(?i)arm|aarch') {
+            if ($got -match '(?i)amd64|x86') { $true }
+            else { "resolved a $got interpreter on an ARM machine -- cryptography will be built from source" }
+        } else {
+            Write-Host -NoNewline "(n/a on $($g.machine)) "
+            $true
+        }
     } finally { $env:PATH = $saved }
 }
 
