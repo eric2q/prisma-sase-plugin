@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Prisma SASE (Prisma Access) ops Skill: tool-selection decision tree, metric thresholds, diagnostic runbooks and a weekly-report template. The read-only MCP tools it drives install separately as a Local MCP server — see the README.",
-    "version": "0.9.2"
+    "version": "0.9.3"
   },
   "plugins": [
     {

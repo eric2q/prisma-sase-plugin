@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.9.3 — 2026-07-28
+
+Documentation only. Both entries come from the same place: 0.9.0 renamed the
+marketplace entries, and nothing in the install path told anyone who had
+already added the marketplace before then.
+
+- **DOC (install, high):** **upgrading from 0.8.x fails with
+  `Plugin "prisma-sase" not found in marketplace "prisma-sase"`, and the README
+  gave no way out.** The 0.8.x catalog listed three OS-specific entries —
+  `prisma-sase-mac` / `-windows` / `-linux` — where 0.9.x lists one, named
+  `prisma-sase`. The trap is that `/plugin marketplace add` does nothing when
+  the clone already exists on disk: it reports `✔ Marketplace 'prisma-sase'
+  already on disk` and fetches nothing, so following the README verbatim leaves
+  a pre-0.9.0 clone untouched and the new entry name unresolvable. Step 4 now
+  names the error string and gives the two commands it needs —
+  `/plugin marketplace update prisma-sase`, then the install.
+
+  It also says to run `/plugin uninstall prisma-sase-mac@prisma-sase`. That is
+  not tidiness: the 0.8.7 cache directory still contains `mcp/`, so the old
+  plugin mounts a second, version-pinned MCP server alongside the Local MCP
+  entry from step 3 — the exact duplication the 0.9.0 split was meant to end.
+
+- **DOC (structure, medium):** **the README now runs in the order the install
+  happens** — prerequisites, credentials, server, Skill — with the four steps
+  numbered and a table at the top that maps each one to what it does. The
+  `uvx … prisma-sase-setup` command previously appeared in the introduction,
+  ahead of the prerequisites it depends on; it now appears once, in step 3,
+  where it is meant to be run. Development history that explained *why* the
+  project is shaped this way has been removed from both READMEs — it is
+  recorded in this file, under 0.9.0, which is where it belongs.
+
 ## 0.9.2 — 2026-07-28
 
 Documentation only — no code changed, and nothing here alters how the server
