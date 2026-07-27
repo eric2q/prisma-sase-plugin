@@ -1125,6 +1125,19 @@ class WindowsVerifierScript(unittest.TestCase):
         does not."""
         self.assertNotRegex(self.src, r"\$args\s*=")
 
+    def test_the_interpreter_probe_does_not_ask_platform_machine(self):
+        """It asks sysconfig.get_platform(), and the distinction is the whole
+        check. On Windows platform.machine() *is* PROCESSOR_ARCHITEW6432 or
+        PROCESSOR_ARCHITECTURE -- it describes the machine, so an x64
+        interpreter on ARM64 Windows still answers ARM64. Probing with it
+        reported a real ARM64 VM as broken when it was fine. Wheels are matched
+        against get_platform(), which is baked in at interpreter build time."""
+        probe = re.search(r"\$probe -Encoding ascii -Value @\((.*?)\n\s*\)",
+                          self.src, re.S)
+        self.assertIsNotNone(probe, "could not find the probe script")
+        self.assertIn("sysconfig.get_platform", probe.group(1))
+        self.assertNotIn("platform.machine", probe.group(1))
+
     def test_it_parses(self):
         """The real check, when a parser is to hand. Skipped rather than
         failed when it is not, so this suite still runs anywhere."""

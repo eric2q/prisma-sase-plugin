@@ -205,6 +205,14 @@ Check "the interpreter uvx resolves is one with wheels" {
     # look identical to a run that never needed to. Ask the resolved interpreter
     # what it is instead. On ARM64 this must come back x86, because that is the
     # whole point -- win_amd64 wheels exist and win_arm64 ones do not.
+    #
+    # sysconfig.get_platform(), not platform.machine(). On Windows the latter is
+    # literally PROCESSOR_ARCHITEW6432 or PROCESSOR_ARCHITECTURE -- it describes
+    # the machine, and answers ARM64 even from an x64 interpreter, which is the
+    # very property relied on to detect ARM64 in the first place. The former is
+    # baked in when the interpreter is built and is what pip matches wheels
+    # against, so it is the thing that actually decides whether cryptography
+    # arrives as a wheel or as a source build.
     $saved = $env:PATH
     try {
         $env:PATH = $g.path
@@ -218,8 +226,8 @@ Check "the interpreter uvx resolves is one with wheels" {
         New-Item -ItemType Directory -Force -Path $tempBase | Out-Null
         $probe = Join-Path $tempBase "probe.py"
         Set-Content -LiteralPath $probe -Encoding ascii -Value @(
-            "import platform"
-            "print('MACHINE=' + platform.machine())"
+            "import sysconfig"
+            "print('TARGET=' + sysconfig.get_platform())"
         )
 
         # Everything the wizard passes uvx except the package itself. `uv run`
@@ -232,12 +240,13 @@ Check "the interpreter uvx resolves is one with wheels" {
 uv run $sel python "$probe"
 "@
         $out = RunCmd $line.Trim()
-        if ($out -notmatch 'MACHINE=(\S+)') { return "no answer from the interpreter:`n$($out.Trim())" }
+        if ($out -notmatch 'TARGET=(\S+)') { return "no answer from the interpreter:`n$($out.Trim())" }
         $got = $Matches[1]
+        Write-Host -NoNewline "($got) "
 
         if ($g.machine -match '(?i)arm|aarch') {
             if ($got -match '(?i)amd64|x86') { $true }
-            else { "resolved a $got interpreter on an ARM machine -- cryptography will be built from source" }
+            else { "resolved a $got interpreter -- no cryptography wheel is published for it, so it would be built from source" }
         } else {
             Write-Host -NoNewline "(n/a on $($g.machine)) "
             $true
