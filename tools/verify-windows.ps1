@@ -208,11 +208,30 @@ Check "the interpreter uvx resolves is one with wheels" {
     $saved = $env:PATH
     try {
         $env:PATH = $g.path
+        # The probe goes in a file rather than after -c. Inline, it would be a
+        # Python string inside a cmd.exe argument inside a PowerShell string,
+        # and the escaping needed at each layer differs -- PowerShell wants a
+        # backtick where C and sh want a backslash. A file has no inner quotes
+        # at all, so no layer has anything to mangle.
+        # The store script creates $tempBase\prisma-sase, not $tempBase itself,
+        # and this check must not depend on an earlier one having run.
+        New-Item -ItemType Directory -Force -Path $tempBase | Out-Null
+        $probe = Join-Path $tempBase "probe.py"
+        Set-Content -LiteralPath $probe -Encoding ascii -Value @(
+            "import platform"
+            "print('MACHINE=' + platform.machine())"
+        )
+
         # Everything the wizard passes uvx except the package itself. `uv run`
         # resolves an interpreter by the same rules and needs no package, so it
         # answers the question without installing anything.
         $sel = $g.uvxargs -replace ' --from .*$', ''
-        $out = RunCmd "uv run $sel python -c \"import platform;print('MACHINE='+platform.machine())\""
+        # A here-string: literal double quotes need no escaping inside one,
+        # which is the whole reason for using it here.
+        $line = @"
+uv run $sel python "$probe"
+"@
+        $out = RunCmd $line.Trim()
         if ($out -notmatch 'MACHINE=(\S+)') { return "no answer from the interpreter:`n$($out.Trim())" }
         $got = $Matches[1]
 

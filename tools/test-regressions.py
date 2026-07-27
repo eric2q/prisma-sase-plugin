@@ -1087,6 +1087,61 @@ class CrossPlatform(unittest.TestCase):
         self.assertIn("--managed-python", entry["args"])
 
 
+class WindowsVerifierScript(unittest.TestCase):
+    """0.9.0 -- tools/verify-windows.ps1 is written on macOS and only ever runs
+    on Windows, so a syntax error in it is not discovered until someone is
+    sitting at a VM waiting for an answer.
+
+    That happened: a `\\"` escape, correct in C and sh, is not an escape in
+    PowerShell. The file failed to parse and none of the ten checks ran. These
+    tests are the cheap half of the guard -- a parser is better, and
+    test_it_parses runs one when pwsh is available."""
+
+    PS1 = os.path.join(ROOT, "tools", "verify-windows.ps1")
+
+    def setUp(self):
+        with open(self.PS1, "r", encoding="utf-8") as fh:
+            self.src = fh.read()
+
+    def test_no_backslash_escaped_quotes(self):
+        r"""PowerShell escapes a double quote as `" or "", never \". Writing
+        \" is the C/sh habit and produces a parse error, not a quote."""
+        bad = [(i, l) for i, l in enumerate(self.src.splitlines(), 1)
+               if '\\"' in l]
+        self.assertEqual([], bad,
+                         "backslash-escaped quotes are not PowerShell:\n" +
+                         "\n".join("  L%d: %s" % (i, l.strip()) for i, l in bad))
+
+    def test_no_powershell_7_only_syntax(self):
+        """Windows ships Windows PowerShell 5.1. ??, && and ?. are 7.0+, and
+        this script has to run on a stock machine."""
+        code = "\n".join(l for l in self.src.splitlines()
+                         if not l.lstrip().startswith("#"))
+        for tok in ("??", "&&", "?."):
+            self.assertNotIn(tok, code, "%r needs PowerShell 7" % tok)
+
+    def test_args_is_not_assigned(self):
+        """$args is an automatic variable; assigning to it works until it
+        does not."""
+        self.assertNotRegex(self.src, r"\$args\s*=")
+
+    def test_it_parses(self):
+        """The real check, when a parser is to hand. Skipped rather than
+        failed when it is not, so this suite still runs anywhere."""
+        pwsh = shutil.which("pwsh") or "/tmp/psdl/pwsh"
+        if not os.path.exists(pwsh):
+            self.skipTest("no pwsh available to parse with")
+        script = (
+            '$e=$null;'
+            '[System.Management.Automation.Language.Parser]::ParseFile('
+            '"%s",[ref]$null,[ref]$e)|Out-Null;'
+            'if($e){$e|%%{"L$($_.Extent.StartLineNumber): $($_.Message)"}}'
+            % self.PS1)
+        out = subprocess.run([pwsh, "-NoProfile", "-Command", script],
+                             capture_output=True, text=True, timeout=120)
+        self.assertEqual("", out.stdout.strip(), "parse errors:\n" + out.stdout)
+
+
 class HostSuppliedNothing(unittest.TestCase):
     """0.8.8 -- the host enables the plugin without ever running the
     userConfig dialog, then expands ${user_config.*} to EMPTY STRINGS.
