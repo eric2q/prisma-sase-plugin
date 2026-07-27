@@ -51,24 +51,35 @@ if (-not $py) { $py = Get-Command python3 -ErrorAction SilentlyContinue }
 if (-not $py) { throw "python not on PATH -- install it or add it" }
 
 $repo = Split-Path -Parent $PSScriptRoot
-$blob = Join-Path $env:TEMP "prisma-sase-verify\client_secret.bin"
+$tempBase = Join-Path $env:TEMP "prisma-sase-verify"
 $secret = "test-secret-" + [guid]::NewGuid().ToString("N").Substring(0, 12)
+
+# Absolute, because several checks run with PATH emptied to prove the launch
+# path does not depend on inheriting one.
+$cmdExe = Join-Path $env:SystemRoot "System32\cmd.exe"
 
 Write-Host "  python : $($py.Source)"
 Write-Host "  repo   : $repo"
-Write-Host "  blob   : $blob  (throwaway)"
+Write-Host "  temp   : $tempBase  (throwaway LOCALAPPDATA)"
 Write-Host ""
 
-# Ask the wizard itself for the two scripts, so this verifies the shipped
-# code rather than a copy of it that could drift.
+# Ask the wizard itself for the scripts, so this verifies the shipped code
+# rather than a copy of it that could drift.
+#
+# LOCALAPPDATA is redirected at a throwaway directory first. _backend() builds
+# its fetch command from _dpapi_blob_path(), so without this the command under
+# test would point at the real blob while store/fetch used the temp one -- the
+# two would disagree and the failure would look like a cmd.exe problem.
 $gen = @"
-import sys
+import sys, os, json
+os.environ['LOCALAPPDATA'] = r'$tempBase'
 sys.path.insert(0, r'$repo\src')
 from prisma_sase_mcp import setup_wizard as w
-import json
+blob = w._dpapi_blob_path()
 print(json.dumps({
-    'store': w._dpapi_store_script(r'$blob'),
-    'fetch': w._dpapi_fetch_script(r'$blob'),
+    'blob': blob,
+    'store': w._dpapi_store_script(blob),
+    'fetch': w._dpapi_fetch_script(blob),
     'backend': w._backend()[0],
     'cmd': w._quote(w._backend()[1]) if w._backend()[0] == 'dpapi' else '',
     'path': w._panel_path(),
@@ -76,6 +87,7 @@ print(json.dumps({
 }))
 "@
 $g = & $py.Source -c $gen | ConvertFrom-Json
+$blob = $g.blob
 
 Write-Host "-- what the wizard reports on this machine --"
 Write-Host "  backend      : $($g.backend)"
@@ -110,33 +122,41 @@ Check "fetch script returns exactly what was stored" {
 Check "the command survives cmd.exe verbatim" {
     # The real launch path: config.py runs PRISMA_SECRET_CMD with shell=True,
     # which on Windows is cmd.exe. This is the check the macOS tests cannot do.
-    $got = & cmd.exe /c $g.cmd
+    $got = (& $cmdExe /c $g.cmd 2>&1 | Out-String).Trim()
     if ($got -eq $secret) { $true }
     else { "cmd.exe mangled it -- got '$got'" }
 }
 
 Check "it works with no PATH inherited" {
-    # The app does not give MCP servers a login shell's environment.
+    # The app does not give MCP servers a login shell's environment, so the
+    # command has to stand on its own. cmd.exe is invoked by absolute path
+    # here for the same reason -- with PATH empty, nothing is on it.
     $saved = $env:PATH
     try {
         $env:PATH = ""
-        $got = & cmd.exe /c $g.cmd
-        if ($got -eq $secret) { $true } else { "failed with an empty PATH" }
+        $got = (& $cmdExe /c $g.cmd 2>&1 | Out-String).Trim()
+        if ($got -eq $secret) { $true }
+        else { "failed with an empty PATH -- got '$got'" }
     } finally { $env:PATH = $saved }
 }
 
-Check "execution policy does not block it" {
-    $p = Get-ExecutionPolicy
-    $got = & cmd.exe /c $g.cmd
+Check "a restrictive execution policy does not block it" {
+    # This script runs under -ExecutionPolicy Bypass, so the ambient policy
+    # proves nothing. Force the strictest one onto the child process instead:
+    # policy governs script *files*, and the fetch uses -Command, so it should
+    # survive. An enterprise GPO setting AllSigned is the case being modelled.
+    $strict = $g.cmd -replace '(?i)-NoProfile', '-ExecutionPolicy Restricted -NoProfile'
+    if ($strict -eq $g.cmd) { return "could not inject a policy flag" }
+    $got = (& $cmdExe /c $strict 2>&1 | Out-String).Trim()
     if ($got -eq $secret) { $true }
-    else { "blocked under policy '$p' -- -Command should be exempt" }
+    else { "blocked under Restricted -- got '$got'" }
 }
 
 Check "uvx is reachable via the PATH the wizard emits" {
     $saved = $env:PATH
     try {
         $env:PATH = $g.path
-        $v = & cmd.exe /c "uvx --version" 2>&1
+        $v = (& $cmdExe /c "uvx --version" 2>&1 | Out-String).Trim()
         if ($LASTEXITCODE -eq 0) { $true }
         else { "uvx not found on the emitted PATH: $v" }
     } finally { $env:PATH = $saved }
@@ -146,26 +166,27 @@ Check "git is reachable too (uvx needs it for the git+ ref)" {
     $saved = $env:PATH
     try {
         $env:PATH = $g.path
-        & cmd.exe /c "git --version" > $null 2>&1
+        $v = (& $cmdExe /c "git --version" 2>&1 | Out-String).Trim()
         if ($LASTEXITCODE -eq 0) { $true }
         else { "git not on the emitted PATH -- uvx cannot resolve the ref" }
     } finally { $env:PATH = $saved }
 }
 
 Check "the server launches and answers --selfcheck" {
+    # Needs the network: uvx resolves the git ref on every launch. A failure
+    # here on an offline VM is the network, not the code.
     $saved = $env:PATH
     try {
         $env:PATH = $g.path
-        $out = & cmd.exe /c "uvx --from git+https://github.com/eric2q/prisma-sase-plugin@uvx-local-mcp prisma-sase-mcp --selfcheck" 2>&1
+        $out = (& $cmdExe /c "uvx --from git+https://github.com/eric2q/prisma-sase-plugin@uvx-local-mcp prisma-sase-mcp --selfcheck" 2>&1 | Out-String)
         if ($out -match "RESULT:") { $true }
-        else { "no RESULT line:`n$($out | Select-Object -Last 5)" }
+        else { "no RESULT line:`n$($out.Trim())" }
     } finally { $env:PATH = $saved }
 }
 
 # --- clean up -------------------------------------------------------------
 
-Remove-Item -LiteralPath (Split-Path -Parent $blob) -Recurse -Force `
-    -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $tempBase -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host ""
 if ($script:failed -eq 0) {
