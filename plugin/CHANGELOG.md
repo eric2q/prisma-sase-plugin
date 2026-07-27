@@ -106,6 +106,19 @@ path. See the README for the full walkthrough.
   The old hint that the most recently modified one is "usually the one in use"
   is gone: both are real installs, and mtime says which was last written, not
   which you work in.
+- **FIX (Windows launch, high):** the server died at startup with uv's
+  *"Git executable not found. Ensure that Git is installed and available"* on
+  a machine where git was installed, on `PATH`, and working in every shell —
+  so the message pointed at the one thing that was not wrong. The host passes
+  the server a fixed allow-list of environment variables and **`PATHEXT` is
+  not on it**; with `PATHEXT` absent Windows appends nothing when resolving a
+  bare name, so `git` was looked up literally and never matched `git.exe`.
+  The entry now carries a `PATHEXT`. The verifier could not have caught this
+  — its git check swapped `PATH` and inherited everything else, `PATHEXT`
+  included — so it now runs git in a child built from the host's allow-list
+  plus the entry's own `env`, and nothing more. Also: the directory `git` was
+  actually found in joins the emitted `PATH` alongside uvx's, since
+  `C:\Program Files\Git\cmd` is only where the usual installer puts it.
 - **FIX (diagnosis, high):** the plugin **stopped accusing correctly-installed
   users of a host bug.** 0.8.8 treated "enabled, but `settings.json` holds no
   `pluginConfigs` entry" as proof the enable dialog never ran — a sound

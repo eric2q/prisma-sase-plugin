@@ -100,6 +100,24 @@ Then, in order:
    `%LOCALAPPDATA%\Claude*` — builds differ on which they use, and a
    `Claude-3p` install was found under `Local` in the field.)
 
+5. **Windows: `Git executable not found` when git is installed.** The full
+   message is uv's — *"Git executable not found. Ensure that Git is installed
+   and available"* — and it appears on machines where git is on `PATH` and
+   works in every shell you try. It is not a `PATH` problem, so adding git to
+   `PATH` again changes nothing.
+
+   The app passes the server only a fixed list of environment variables
+   (`APPDATA`, `PATH`, `SYSTEMROOT` and a handful more). **`PATHEXT` is not on
+   that list**, so it does not exist in the server process — and with no
+   `PATHEXT`, Windows appends nothing when resolving a bare command name.
+   `git` is looked up as a literal filename and never matches `git.exe`.
+
+   The fix is one line in the entry's `env`, which `prisma-sase-setup` now
+   writes for you. If you built the entry by hand, add:
+   ```
+   PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.JS;.WSF;.MSC
+   ```
+
 ## Getting the API key — a read-only service account
 
 The API key is a service account's **Client ID + Client Secret**, created in

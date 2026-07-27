@@ -103,6 +103,7 @@ print(json.dumps({
     'path': w._panel_path(),
     'uvxargs': ' '.join(w._uvx_args()),
     'machine': w.platform.machine(),
+    'pathext': w._panel_entry('c', '1', 'sg', None)['env'].get('PATHEXT', ''),
 }))
 "@
 $g = & $py.Source -c $gen | ConvertFrom-Json
@@ -272,6 +273,52 @@ Check "git is reachable too (uvx needs it for the git+ ref)" {
         if ($LASTEXITCODE -eq 0) { $true }
         else { "git not on the emitted PATH -- uvx cannot resolve the ref" }
     } finally { $env:PATH = $saved }
+}
+
+Check "git is still reachable with only the vars the host passes" {
+    # The check above passes with a broken config, and did. It swaps PATH and
+    # leaves everything else inherited -- including PATHEXT, which the host
+    # does *not* pass on. Claude hands the child a fixed allow-list (APPDATA,
+    # HOMEDRIVE, HOMEPATH, LOCALAPPDATA, PATH, PROCESSOR_ARCHITECTURE,
+    # SYSTEMDRIVE, SYSTEMROOT, TEMP, USERNAME, USERPROFILE, PROGRAMFILES)
+    # merged with the entry's own env, and PATHEXT is not on it.
+    #
+    # Absent PATHEXT, Windows appends nothing when resolving a bare name, so
+    # "git" is looked up literally and never matches git.exe. uv then reports
+    # "Git executable not found. Ensure that Git is installed and available"
+    # on a machine where git is installed and on PATH -- which reads as a PATH
+    # problem and is not one.
+    #
+    # So this runs git in a *child* whose environment is built from the
+    # allow-list plus the entry's env, and nothing else.
+    $allow = @('APPDATA', 'HOMEDRIVE', 'HOMEPATH', 'LOCALAPPDATA',
+               'PROCESSOR_ARCHITECTURE', 'SYSTEMDRIVE', 'SYSTEMROOT',
+               'TEMP', 'USERNAME', 'USERPROFILE', 'PROGRAMFILES')
+    $psi = New-Object Diagnostics.ProcessStartInfo
+    $psi.FileName = $cmdExe
+    $psi.Arguments = '/c git --version'
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.EnvironmentVariables.Clear()
+    foreach ($n in $allow) {
+        $v = [Environment]::GetEnvironmentVariable($n)
+        if ($v) { $psi.EnvironmentVariables[$n] = $v }
+    }
+    # Exactly what the wizard writes, no more.
+    $psi.EnvironmentVariables['PATH'] = $g.path
+    if ($g.pathext) { $psi.EnvironmentVariables['PATHEXT'] = $g.pathext }
+
+    $p = [Diagnostics.Process]::Start($psi)
+    $out = $p.StandardOutput.ReadToEnd() + $p.StandardError.ReadToEnd()
+    $p.WaitForExit()
+    if ($p.ExitCode -eq 0) { $true }
+    elseif (-not $g.pathext) {
+        "the entry sets no PATHEXT, so git.exe is invisible to uvx even " +
+        "though PATH is right. uv will say `"Git executable not found`"."
+    } else {
+        "git did not run under the host's environment:`n$($out.Trim())"
+    }
 }
 
 Check "the interpreter uvx resolves is one with wheels" {

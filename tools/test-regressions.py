@@ -1042,6 +1042,40 @@ class CrossPlatform(unittest.TestCase):
                                if n == "uvx" else None):
             self.assertTrue(w._panel_path().startswith("/opt/weird/bin:"))
 
+    def test_the_directory_git_lives_in_is_on_the_path_too(self):
+        """Same reasoning as uvx, and the same consequence when it is wrong:
+        uvx cannot resolve git+https:// without git, and the hardcoded
+        "C:\\Program Files\\Git\\cmd" is only where the usual installer puts
+        it. Winget, Scoop and a portable copy all put it somewhere else."""
+        import unittest.mock as mock
+        w = self._wizard("Linux")
+        with mock.patch.object(w.shutil, "which",
+                               lambda n: "/opt/git/bin/git"
+                               if n == "git" else None):
+            self.assertIn("/opt/git/bin", w._panel_path().split(":"))
+
+    def test_windows_is_given_a_pathext(self):
+        """The one that actually bit, and it does not look like a PATH bug.
+
+        The host hands the server a fixed allow-list of variables and PATHEXT
+        is not on it, so it is absent in the child. Windows supplies no
+        default for an absent PATHEXT -- nothing gets appended -- so "git" is
+        looked up literally and never matches git.exe, however right PATH is.
+
+        uv reports "Git executable not found. Ensure that Git is installed
+        and available" on a machine where git is installed and on PATH.
+        """
+        w = self._wizard("Windows")
+        self._fake_powershell(w)
+        env = w._panel_entry("c", "1", "sg", None)["env"]
+        self.assertIn(".EXE", env.get("PATHEXT", "").upper())
+
+    def test_pathext_is_not_set_off_windows(self):
+        """It means nothing to a POSIX exec and would only be noise in a
+        config the user reads."""
+        w = self._wizard("Linux")
+        self.assertNotIn("PATHEXT", w._panel_entry("c", "1", "sg", None)["env"])
+
     # -- config location ---------------------------------------------------
 
     def test_windows_config_lives_under_appdata(self):

@@ -443,11 +443,12 @@ def _panel_path():
 
     `command` is absolute, so this is not about finding uvx -- it is about
     what uvx itself then needs: git, to resolve the ref, and the interpreter
-    it installs. Built around the directory uvx was actually found in, so a
-    non-standard install location works without anyone editing this list.
+    it installs. Built around the directories uvx and git were actually found
+    in, so a non-standard install location works without anyone editing the
+    list of usual suspects below.
     """
-    found = shutil.which("uvx")
-    here = [os.path.dirname(found)] if found else []
+    here = [os.path.dirname(p)
+            for p in (shutil.which("uvx"), shutil.which("git")) if p]
     home = os.path.expanduser("~")
     if platform.system() == "Windows":
         # ntpath rather than os.path: os.path is posixpath when this runs
@@ -504,6 +505,21 @@ def _panel_entry(client_id, tsg_id, region, secret_cmd):
         "PRISMA_TSG_ID": tsg_id,
         "PRISMA_REGION": region,
     }
+    if platform.system() == "Windows":
+        # Without this, uvx finds the directory git lives in and still cannot
+        # see git.exe. The host passes the child only a fixed allow-list of
+        # variables -- APPDATA, PATH, SYSTEMROOT and a handful more -- and
+        # PATHEXT is not among them, so it simply does not exist in the server
+        # process. Windows has no built-in default: an absent PATHEXT means
+        # "append nothing", and a bare "git" is looked up as a literal
+        # filename that never matches git.exe.
+        #
+        # It surfaces as uv's "Git executable not found. Ensure that Git is
+        # installed and available" on a machine where git is installed, is on
+        # PATH, and works in every shell the user tries -- which sends anyone
+        # debugging it after the wrong thing entirely.
+        env["PATHEXT"] = os.environ.get("PATHEXT") or (
+            ".COM;.EXE;.BAT;.CMD;.VBS;.JS;.WSF;.MSC")
     if secret_cmd:
         env["PRISMA_SECRET_CMD"] = secret_cmd
     else:
