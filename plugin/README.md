@@ -161,6 +161,14 @@ through to the file rather than silently winning.
    # op read "op://Private/prisma-sase/client secret"                   # 1Password
    ```
 
+   On **Windows** the store is DPAPI, driven through PowerShell — there is no
+   `security` equivalent, and `cmdkey` will not print a password back, so it
+   cannot serve as a fetch command. `prisma-sase-setup` keeps the encrypted
+   blob in `%LOCALAPPDATA%\prisma-sase\` and emits the PowerShell that
+   decrypts it. DPAPI binds the blob to *this user on this machine*: copying
+   it elsewhere yields a file nobody can read. It is `-Command`, not `-File`,
+   so an execution policy of `AllSigned` or `Restricted` does not block it.
+
    `bash setup-keychain.sh` (shipped in `src/prisma_sase_mcp/`) wires this by
    hand if you prefer: it prompts for the secret hidden — never as a
    command-line argument, which `ps` would expose — stores it, and writes the

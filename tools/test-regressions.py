@@ -851,6 +851,192 @@ class SetupWizard(unittest.TestCase):
             shutil.rmtree(home, ignore_errors=True)
 
 
+class CrossPlatform(unittest.TestCase):
+    """0.9.0 -- the wizard has to behave on the two systems it is not being
+    developed on.
+
+    Every one of these runs on macOS against a patched platform.system(), so
+    they pin the *shape* of what would be emitted, not that it works. What
+    they can catch is the class of bug that put this class here: Windows had
+    no secret backend at all, so the wizard's whole purpose -- keeping the
+    secret out of the plaintext config -- quietly did not apply there, and
+    nothing failed to say so.
+    """
+
+    def _wizard(self, osname, **env):
+        """Load setup_wizard as `osname`, with a clean PRISMA_* environment."""
+        import importlib.util
+        import unittest.mock as mock
+        spec = importlib.util.spec_from_file_location(
+            "wiz_%s" % osname, os.path.join(MCP, "setup_wizard.py"))
+        w = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(w)
+        p = mock.patch.object(w.platform, "system", lambda: osname)
+        p.start()
+        self.addCleanup(p.stop)
+        d = mock.patch.dict(w.os.environ, env)
+        d.start()
+        self.addCleanup(d.stop)
+        return w
+
+    def _fake_powershell(self, w, path=r"C:\Windows\System32\powershell.exe"):
+        import unittest.mock as mock
+        p = mock.patch.object(w.shutil, "which",
+                              lambda n: path if n == "powershell" else None)
+        p.start()
+        self.addCleanup(p.stop)
+
+    # -- the bug this class exists for ------------------------------------
+
+    def test_windows_has_a_secret_backend(self):
+        """Without one the wizard delivers less than it advertises.
+
+        Its stated purpose is keeping the secret out of the plaintext config.
+        On Windows it used to find no backend, emit a
+        PRISMA_CLIENT_SECRET placeholder, and tell the user to paste the
+        secret into the very file the wizard exists to keep it out of.
+        """
+        w = self._wizard("Windows")
+        self._fake_powershell(w)
+        name, fetch = w._backend()
+        self.assertEqual(name, "dpapi")
+        self.assertTrue(fetch)
+
+        entry = w._panel_entry("cid@1", "1", "sg", w._quote(fetch))
+        self.assertIn("PRISMA_SECRET_CMD", entry["env"])
+        self.assertNotIn("PRISMA_CLIENT_SECRET", entry["env"],
+                         "a plaintext secret field is what dpapi replaces")
+
+    def test_windows_secret_command_survives_cmd_exe(self):
+        """PRISMA_SECRET_CMD is run with shell=True -- cmd.exe on Windows.
+
+        shlex.quote emits POSIX single quotes, which cmd.exe passes through
+        as literal characters; PowerShell would then see an argument starting
+        with a stray quote. cmd.exe also eats bare double quotes and expands
+        %VAR% even inside them.
+        """
+        w = self._wizard("Windows")
+        self._fake_powershell(w)
+        cmd = w._quote(w._backend()[1])
+        self.assertNotIn("'C:", cmd, "POSIX quoting leaked into a cmd.exe line")
+        self.assertNotIn("%", cmd, "cmd.exe would expand this as a variable")
+        self.assertEqual(cmd.count('"') % 2, 0, "unbalanced double quotes")
+
+    def test_windows_quoting_refuses_what_it_cannot_express(self):
+        """cmd.exe cannot escape a double quote inside a quoted argument.
+
+        Emitting a mangled command would fail at launch with no clue why, so
+        the quoting raises instead.
+        """
+        w = self._wizard("Windows")
+        with self.assertRaises(ValueError):
+            w._quote(['say "hi"'])
+
+    def test_a_path_with_a_space_is_quoted(self):
+        """Program Files is the default install location for a lot of this."""
+        w = self._wizard("Windows")
+        self.assertEqual(w._quote([r"C:\Program Files\ps.exe", "-x"]),
+                         r'"C:\Program Files\ps.exe" -x')
+
+    def test_a_metacharacter_without_a_space_is_still_quoted(self):
+        """`&` splits a cmd.exe line on its own -- quoting only on
+        whitespace would let the tail of an argument run as a command."""
+        w = self._wizard("Windows")
+        self.assertEqual(w._quote(["a&calc"]), '"a&calc"')
+
+    def test_a_percent_sign_is_refused(self):
+        """cmd.exe expands %VAR% even inside double quotes, and nothing
+        available here escapes it."""
+        w = self._wizard("Windows")
+        with self.assertRaises(ValueError):
+            w._quote(["%USERPROFILE%"])
+
+    def test_the_blob_path_is_backslashed(self):
+        """It is interpolated into PowerShell and read by Windows. Built with
+        os.path.join it comes out mixed-separator when this runs elsewhere."""
+        w = self._wizard("Windows", LOCALAPPDATA=r"C:\Users\e\AppData\Local")
+        self.assertNotIn("/", w._dpapi_blob_path())
+
+    # -- PATH --------------------------------------------------------------
+
+    def test_the_panel_path_is_not_macos_shaped_on_linux(self):
+        """uvx needs git and its interpreter findable, and the app supplies
+        no PATH. ~/.local/bin is where the official uv installer puts them."""
+        w = self._wizard("Linux")
+        path = w._panel_path()
+        self.assertIn(".local/bin", path)
+        self.assertIn(":", path)
+        self.assertNotIn(";", path)
+
+    def test_the_panel_path_uses_windows_separators(self):
+        w = self._wizard("Windows", SystemRoot=r"C:\Windows")
+        path = w._panel_path()
+        self.assertIn(";", path)
+        self.assertIn(r"C:\Windows\System32", path)
+
+    def test_windows_keeps_its_path(self):
+        """It used to be popped, on the theory that Windows resolves .exe
+        without help. uvx still has to find git."""
+        w = self._wizard("Windows")
+        self._fake_powershell(w)
+        self.assertIn("PATH", w._panel_entry("c", "1", "sg", None)["env"])
+
+    def test_the_directory_uvx_lives_in_is_on_the_path(self):
+        """A non-standard install location has to work without an edit here."""
+        import unittest.mock as mock
+        w = self._wizard("Linux")
+        with mock.patch.object(w.shutil, "which",
+                               lambda n: "/opt/weird/bin/uvx"
+                               if n == "uvx" else None):
+            self.assertTrue(w._panel_path().startswith("/opt/weird/bin:"))
+
+    # -- config location ---------------------------------------------------
+
+    def test_windows_config_lives_under_appdata(self):
+        import unittest.mock as mock
+        w = self._wizard("Windows", APPDATA=r"C:\Users\e\AppData\Roaming")
+        with mock.patch.object(w.os, "listdir", lambda _: []):
+            self.assertEqual(w._panel_config_dirs()[0],
+                             os.path.join(r"C:\Users\e\AppData\Roaming",
+                                          "Claude"))
+
+    def test_the_dpapi_blob_is_local_not_roaming(self):
+        """DPAPI ties the blob to this user on this machine, so roaming it
+        would only propagate a file the other machine cannot decrypt."""
+        w = self._wizard("Windows", LOCALAPPDATA=r"C:\Users\e\AppData\Local")
+        self.assertTrue(w._dpapi_blob_path().startswith(
+            r"C:\Users\e\AppData\Local"))
+
+    # -- the PowerShell itself ---------------------------------------------
+
+    def test_the_powershell_never_puts_the_secret_on_a_command_line(self):
+        """argv is readable by every process running as this user."""
+        w = self._wizard("Windows")
+        store = w._dpapi_store_script(r"C:\x\secret.bin")
+        self.assertIn("[Console]::In.ReadLine()", store)
+        self.assertNotIn("-AsPlainText $s", store)
+
+    def test_the_powershell_is_inline_so_execution_policy_cannot_block_it(self):
+        """Execution policy applies to script files, not -Command."""
+        w = self._wizard("Windows")
+        self._fake_powershell(w)
+        argv = w._backend()[1]
+        self.assertIn("-Command", argv)
+        self.assertNotIn("-File", argv)
+        self.assertIn("-NoProfile", argv,
+                      "a user profile could print banners into stdout")
+
+    def test_a_path_with_a_quote_in_it_cannot_break_out_of_the_script(self):
+        w = self._wizard("Windows")
+        self.assertEqual(w._ps_quote("it's"), "'it''s'")
+
+    def test_dpapi_encrypts_with_no_key_so_it_binds_to_the_user(self):
+        """ConvertFrom-SecureString -Key would use a key we would then have
+        to store somewhere, defeating the point."""
+        w = self._wizard("Windows")
+        self.assertNotIn("-Key", w._dpapi_store_script(r"C:\x"))
+
+
 class HostSuppliedNothing(unittest.TestCase):
     """0.8.8 -- the host enables the plugin without ever running the
     userConfig dialog, then expands ${user_config.*} to EMPTY STRINGS.

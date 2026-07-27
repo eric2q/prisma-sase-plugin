@@ -31,6 +31,35 @@ path. See the README for the full walkthrough.
   `--show` reports what is already stored, revealing no secret. It never
   writes a plaintext secret into the entry: what goes in is a
   `PRISMA_SECRET_CMD` line, so the secret itself stays in the keychain.
+- **NEW (Windows):** a secret backend where there was none. `_backend()` only
+  knew `security`, `secret-tool` and `pass` — all three absent on Windows — so
+  the wizard there found nothing, wrote a `PRISMA_CLIENT_SECRET` placeholder,
+  and told the user to paste the secret into the very file it exists to keep
+  it out of. It now uses **DPAPI** via PowerShell: the encrypted blob lives in
+  `%LOCALAPPDATA%\prisma-sase\`, decryptable only by that user on that
+  machine. `cmdkey` was the obvious candidate and does not work — it stores
+  into Credential Manager but will not print a password back, so it cannot be
+  a fetch command.
+- **FIX (Windows, latent):** `_quote()` emitted POSIX `shlex` quoting into a
+  string that `config.py` runs with `shell=True` — cmd.exe on Windows, which
+  treats single quotes as literal characters. Harmless while Windows had no
+  backend; a launch failure the moment one existed. It now quotes for cmd.exe
+  and refuses what cmd.exe cannot express (an embedded `"`, or a `%` it would
+  expand even inside quotes) rather than emitting a command that dies at
+  launch with no diagnostic.
+- **FIX (Linux):** the panel entry's `PATH` was macOS-shaped
+  (`/opt/homebrew/bin:...`) and omitted `~/.local/bin`, which is where the
+  official uv installer puts `uvx`. It is now built around the directory uvx
+  was actually found in, so a non-standard install location needs no edit.
+  Windows keeps a `PATH` too — 0.9.0 dropped it there on the theory that
+  Windows resolves `.exe` without help, but uvx still has to find `git` to
+  resolve the `git+` ref.
+- **NEW:** `tools/verify-windows.ps1` — the Windows paths above were written
+  on macOS, where their tests can only pin the *shape* of what gets emitted.
+  This script runs on Windows and checks the parts that shape cannot: that the
+  secret round-trips through DPAPI, that the command survives cmd.exe
+  verbatim, that it works with no inherited `PATH`, and that execution policy
+  does not block it.
 - **NEW:** the server auto-updates. No pinned ref means every launch gets the
   current `main`. Need a frozen target for a customer demo? Pin one:
   `git+https://github.com/eric2q/prisma-sase-plugin@v0.9.0`.

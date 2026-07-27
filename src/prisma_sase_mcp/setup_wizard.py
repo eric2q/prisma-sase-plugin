@@ -45,11 +45,98 @@ SERVER_NAME = "prisma-sase"
 # secret backends
 # --------------------------------------------------------------------------
 
+def _ps_exe():
+    """Windows PowerShell, or PowerShell 7 if that is all there is.
+
+    powershell.exe ships with every supported Windows; pwsh is the optional
+    modern one. Either can do DPAPI, so prefer the one guaranteed present.
+    """
+    return shutil.which("powershell") or shutil.which("pwsh")
+
+
+def _ps_quote(s):
+    """Quote a string as a PowerShell single-quoted literal.
+
+    Inside single quotes PowerShell expands nothing -- no $variable, no
+    backtick escapes -- so a Windows path with backslashes survives as typed.
+    The one character that needs care is the quote itself, which is escaped by
+    doubling.
+    """
+    return "'" + s.replace("'", "''") + "'"
+
+
+def _dpapi_blob_path():
+    """Where the DPAPI-encrypted secret is kept on Windows.
+
+    LOCALAPPDATA rather than APPDATA: the blob is decryptable only by this
+    user on this machine, so roaming it to another machine would just produce
+    a file that cannot be read.
+    """
+    import ntpath          # os.path is posixpath when simulating Windows
+    base = os.environ.get("LOCALAPPDATA") or ntpath.join(
+        os.path.expanduser("~"), "AppData", "Local")
+    return ntpath.join(base, "prisma-sase", "client_secret.bin")
+
+
+def _dpapi_fetch_script(blob):
+    """PowerShell that prints the decrypted secret to stdout.
+
+    This ends up inside PRISMA_SECRET_CMD, which config.py runs with
+    shell=True -- cmd.exe on Windows. Two consequences shape it:
+
+      * It is passed with -Command, not -File. Execution policy applies only
+        to script *files*, so an inline command still runs under the AllSigned
+        or Restricted policy an enterprise GPO is likely to impose.
+      * It must contain no double quote and no '%'. cmd.exe strips the former
+        and expands the latter even inside a quoted argument. Single-quoted
+        PowerShell literals keep both out.
+    """
+    return (
+        "$ErrorActionPreference='Stop';"
+        "$b=Get-Content -LiteralPath %s -Raw;"
+        "$s=ConvertTo-SecureString $b.Trim();"
+        "[Runtime.InteropServices.Marshal]::PtrToStringBSTR("
+        "[Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))"
+        % _ps_quote(blob)
+    )
+
+
+def _dpapi_store_script(blob):
+    """PowerShell that reads the secret from stdin and writes it encrypted.
+
+    stdin, not an argument: anything on a command line is visible to every
+    process running as this user via the process list.
+
+    ConvertFrom-SecureString with no -Key encrypts with DPAPI under the
+    current user's key, so the file on disk is useless to another account and
+    useless on another machine -- which is the property we want from a thing
+    that has to sit in the filesystem at all.
+    """
+    return (
+        "$ErrorActionPreference='Stop';"
+        "$p=%s;"
+        "New-Item -ItemType Directory -Force -Path (Split-Path -Parent $p)"
+        " | Out-Null;"
+        "$s=[Console]::In.ReadLine();"
+        "ConvertTo-SecureString $s -AsPlainText -Force"
+        " | ConvertFrom-SecureString"
+        " | Set-Content -LiteralPath $p -Encoding ascii"
+        % _ps_quote(blob)
+    )
+
+
 def _backend():
     """Pick a secret store. Returns (name, fetch_argv) or (None, None)."""
     if platform.system() == "Darwin" and shutil.which("security"):
         return "keychain", ["security", "find-generic-password",
                             "-s", SERVICE, "-a", ACCOUNT, "-w"]
+    if platform.system() == "Windows" and _ps_exe():
+        # No Windows equivalent of `security` exists: cmdkey stores into
+        # Credential Manager but will not print a password back, so it cannot
+        # serve as a fetch command. DPAPI is the built-in primitive underneath
+        # Credential Manager anyway, and PowerShell exposes it directly.
+        return "dpapi", [_ps_exe(), "-NoProfile", "-NonInteractive",
+                         "-Command", _dpapi_fetch_script(_dpapi_blob_path())]
     if shutil.which("secret-tool"):
         return "secret-tool", ["secret-tool", "lookup",
                                "service", SERVICE, "key", ACCOUNT]
@@ -78,6 +165,11 @@ def _store_secret(backend, secret):
                         "%s/%s" % (SERVICE, ACCOUNT)],
                        input=(secret + "\n").encode(), check=True,
                        stdout=subprocess.DEVNULL)
+    elif backend == "dpapi":
+        subprocess.run([_ps_exe(), "-NoProfile", "-NonInteractive",
+                        "-Command", _dpapi_store_script(_dpapi_blob_path())],
+                       input=(secret + "\n").encode(), check=True,
+                       stdout=subprocess.DEVNULL)
 
 
 def _fetch_secret(fetch_argv):
@@ -91,7 +183,37 @@ def _fetch_secret(fetch_argv):
 
 
 def _quote(argv):
-    """Render argv as the single shell string PRISMA_SECRET_CMD expects."""
+    """Render argv as the single shell string PRISMA_SECRET_CMD expects.
+
+    config.py runs that string with shell=True, so the quoting has to match
+    whichever shell will receive it. shlex.quote speaks POSIX sh and its
+    single quotes are literal characters to cmd.exe, which would hand
+    PowerShell an argument beginning with a stray quote.
+
+    cmd.exe has only double quotes, and no escape for a double quote inside
+    them. The callers above avoid producing one -- the PowerShell scripts are
+    written with single-quoted literals for exactly this reason -- so wrapping
+    is enough. An embedded double quote would be unrepresentable, so refuse
+    rather than emit a command that fails at launch with no clue why.
+
+    Anything containing a cmd.exe metacharacter is quoted, not just anything
+    containing a space: `&`, `|` and `<>` split a command line without needing
+    one. `%` is refused outright, since cmd.exe expands %VAR% even inside
+    double quotes and there is no way to escape it from here.
+    """
+    if platform.system() == "Windows":
+        out = []
+        for a in argv:
+            if '"' in a:
+                raise ValueError(
+                    "cannot express %r in a cmd.exe command line" % a)
+            if "%" in a:
+                raise ValueError(
+                    "cmd.exe would expand %% in %r and cannot be stopped" % a)
+            out.append('"%s"' % a
+                       if any(c in a for c in ' \t&|<>^()')
+                       else a)
+        return " ".join(out)
     import shlex
     return " ".join(shlex.quote(a) for a in argv)
 
@@ -270,12 +392,45 @@ def _uvx_path():
     return shutil.which("uvx") or "uvx"
 
 
+def _panel_path():
+    """A PATH for the server process, since the app does not supply one.
+
+    `command` is absolute, so this is not about finding uvx -- it is about
+    what uvx itself then needs: git, to resolve the ref, and the interpreter
+    it installs. Built around the directory uvx was actually found in, so a
+    non-standard install location works without anyone editing this list.
+    """
+    found = shutil.which("uvx")
+    here = [os.path.dirname(found)] if found else []
+    home = os.path.expanduser("~")
+    if platform.system() == "Windows":
+        # ntpath rather than os.path: os.path is posixpath when this runs
+        # anywhere but Windows, and would join these with forward slashes.
+        import ntpath
+        sysroot = os.environ.get("SystemRoot", r"C:\Windows")
+        usual = [ntpath.join(home, ".local", "bin"),
+                 r"C:\Program Files\Git\cmd",
+                 ntpath.join(sysroot, "System32"),
+                 sysroot]
+        sep = ";"
+    else:
+        # ~/.local/bin is where the official uv installer puts things;
+        # /opt/homebrew/bin is Apple silicon, /usr/local/bin Intel and the
+        # common Linux prefix.
+        usual = [os.path.join(home, ".local", "bin"), "/opt/homebrew/bin",
+                 "/usr/local/bin", "/usr/bin", "/bin"]
+        sep = ":"
+    ordered = []
+    for d in here + usual:
+        if d and d not in ordered:
+            ordered.append(d)
+    return sep.join(ordered)
+
+
 def _panel_entry(client_id, tsg_id, region, secret_cmd):
     """The block the user pastes -- or that we write for them."""
     env = {
-        # uvx and its resolved interpreter must be findable; the app does not
-        # pass a login shell's PATH to MCP servers.
-        "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+        "PATH": _panel_path(),
         "PRISMA_CLIENT_ID": client_id,
         "PRISMA_TSG_ID": tsg_id,
         "PRISMA_REGION": region,
@@ -284,8 +439,6 @@ def _panel_entry(client_id, tsg_id, region, secret_cmd):
         env["PRISMA_SECRET_CMD"] = secret_cmd
     else:
         env["PRISMA_CLIENT_SECRET"] = "<paste your client secret here>"
-    if platform.system() == "Windows":
-        env.pop("PATH")
     return {
         "command": _uvx_path(),
         "args": ["--from", GIT_URL, "prisma-sase-mcp"],
@@ -367,7 +520,11 @@ def main(argv=None):
         print("  secret store: %s" % backend)
     else:
         print("  secret store: NONE FOUND -- the secret will have to go into")
-        print("  the panel in plaintext. On Linux: apt install libsecret-tools")
+        print("  the panel in plaintext.")
+        if platform.system() == "Windows":
+            print("  (expected powershell.exe on PATH and did not find it)")
+        elif platform.system() != "Darwin":
+            print("  Install one: apt install libsecret-tools  (or `pass`)")
 
     client_id = _ask(
         "Client ID",
