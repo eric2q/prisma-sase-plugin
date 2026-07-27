@@ -81,18 +81,17 @@ class AuthManager:
     def _fetch(self, tsg):
         if not config.CLIENT_ID or not config.CLIENT_SECRET:
             msg = ("Missing PRISMA_CLIENT_ID / PRISMA_CLIENT_SECRET. Easiest "
-                   "fix: fill in the plugin's enable dialog (Desktop: "
-                   "Settings -> Plugins -> prisma-sase; the Claude Code CLI "
-                   "prompts for the same four values on enable) -- the secret "
-                   "goes to secure storage, and a full app restart applies "
-                   "it. Without that dialog (cloud session, CI, standalone "
-                   "install), use ~/.prisma-sase.env (chmod 600) or "
-                   "PRISMA_SECRET_CMD. These are deliberately NOT tool "
-                   "parameters: credentials must never travel through the "
-                   "conversation.")
-            # A host-side gap outranks the generic advice above: telling
-            # someone to "fill in the enable dialog" is useless when the
-            # dialog is exactly what never ran. userconfig_diagnosis()
+                   "fix: run the guided setup -- uvx --from "
+                   "git+https://github.com/eric2q/prisma-sase-plugin "
+                   "prisma-sase-setup -- which writes the Local MCP servers "
+                   "entry and can put the secret in your OS keychain. Then "
+                   "fully restart the app. Alternatives: ~/.prisma-sase.env "
+                   "(chmod 600) or PRISMA_SECRET_CMD. These are deliberately "
+                   "NOT tool parameters: credentials must never travel "
+                   "through the conversation.")
+            # A malformed value outranks the generic advice above: telling
+            # someone to run setup is useless when setup already ran and
+            # produced a blank or literal ${...} value. userconfig_diagnosis()
             # subsumes placeholder_hint() (its "unexpanded" case).
             diag = config.userconfig_diagnosis()
             if diag:

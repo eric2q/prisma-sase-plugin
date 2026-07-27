@@ -1,5 +1,154 @@
 # Changelog
 
+## 0.9.0 — 2026-07-27
+
+**The plugin split in two.** The MCP server is no longer mounted by the
+plugin; it installs as a **Local MCP server** launched through `uvx`, and the
+plugin ships the `prisma-sase-ops` Skill alone.
+
+The reason is the update cadence. A plugin is cached per version
+(`~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`), so a server fix
+reached you only when you explicitly clicked Update. `uvx --from git+...`
+re-resolves this repo on **every app launch** — so a fix pushed today is
+running on your machine after your next restart, with nothing to click. For a
+component that talks to a live API and whose bugs arrive as field reports,
+that is the cadence it needed.
+
+**What you have to do once:**
+
+```bash
+uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
+```
+
+Existing 0.8.x installs keep working until you migrate; the venv launchers
+(`run.sh` / `run.cmd` / `install.sh`) are still shipped, now as the legacy
+path. See the README for the full walkthrough.
+
+- **NEW:** `prisma-sase-setup` — a guided credential installer. Asks for the
+  four values with an explanation of each, detects the TSG ID from your Client
+  ID, stores the Client Secret in your OS keychain, and writes the Local MCP
+  servers entry for you. `--print` shows the JSON and writes nothing;
+  `--show` reports what is already stored, revealing no secret. It never
+  writes a plaintext secret into the entry: what goes in is a
+  `PRISMA_SECRET_CMD` line, so the secret itself stays in the keychain.
+- **NEW (Windows):** a secret backend where there was none. `_backend()` only
+  knew `security`, `secret-tool` and `pass` — all three absent on Windows — so
+  the wizard there found nothing, wrote a `PRISMA_CLIENT_SECRET` placeholder,
+  and told the user to paste the secret into the very file it exists to keep
+  it out of. It now uses **DPAPI** via PowerShell: the encrypted blob lives in
+  `%LOCALAPPDATA%\prisma-sase\`, decryptable only by that user on that
+  machine. `cmdkey` was the obvious candidate and does not work — it stores
+  into Credential Manager but will not print a password back, so it cannot be
+  a fetch command.
+- **FIX (Windows, latent):** `_quote()` emitted POSIX `shlex` quoting into a
+  string that `config.py` runs with `shell=True` — cmd.exe on Windows, which
+  treats single quotes as literal characters. Harmless while Windows had no
+  backend; a launch failure the moment one existed. It now quotes for cmd.exe
+  and refuses what cmd.exe cannot express (an embedded `"`, or a `%` it would
+  expand even inside quotes) rather than emitting a command that dies at
+  launch with no diagnostic.
+- **FIX (Linux):** the panel entry's `PATH` was macOS-shaped
+  (`/opt/homebrew/bin:...`) and omitted `~/.local/bin`, which is where the
+  official uv installer puts `uvx`. It is now built around the directory uvx
+  was actually found in, so a non-standard install location needs no edit.
+  Windows keeps a `PATH` too — 0.9.0 dropped it there on the theory that
+  Windows resolves `.exe` without help, but uvx still has to find `git` to
+  resolve the `git+` ref.
+- **NEW:** `tools/verify-windows.ps1` — the Windows paths above were written
+  on macOS, where their tests can only pin the *shape* of what gets emitted.
+  This script runs on Windows and checks the parts that shape cannot: that the
+  secret round-trips through DPAPI, that the command survives cmd.exe
+  verbatim, that it works with no inherited `PATH`, and that execution policy
+  does not block it. All confirmed passing on a real Windows machine.
+- **FIX (Windows on ARM):** the server could not launch there at all. Found on
+  a real ARM64 VM, where `--selfcheck` went off building `cryptography==49.0.0`
+  from source: it arrives transitively (`fastmcp` → `mcp` → `pyjwt[crypto]`)
+  and its authors publish no `win_arm64` wheel for the current version, so a
+  native interpreter has nothing to install and must compile — which needs Rust
+  and MSVC, and without them dies citing `cargo`, naming nothing to do with
+  this plugin. The wizard now asks uv for an x64 interpreter on ARM64 Windows
+  (`--managed-python --python cpython-3.12-windows-x86_64`). Windows on ARM
+  emulates x64, the `win_amd64` wheels exist, and nothing is compiled. uv
+  publishes no ARM64 Windows build in the first place, so this only makes
+  explicit what it would have to do regardless. Other platforms are untouched —
+  choosing uv's interpreter for it is a liberty, and the missing wheel is the
+  whole justification. The one launch the wizard cannot fix is the one that
+  installs it: `prisma-sase-setup` is a second entry point of the same package,
+  so uvx resolves the same dependencies for it and hits the same wall, before
+  any of our code has run. That command is documented with the two flags in
+  both READMEs, and a test fails if the interpreter the wizard picks and the
+  one the docs print ever drift apart.
+- **NEW:** the server auto-updates. No pinned ref means every launch gets the
+  current `main`. Need a frozen target for a customer demo? Pin one:
+  `git+https://github.com/eric2q/prisma-sase-plugin@v0.9.0`.
+- **NEW:** the entry sets `PATH` explicitly, because the app does not give MCP
+  servers a login shell's `PATH` and `uvx: command not found` was otherwise
+  the first thing everyone hit.
+- **FIX (setup, high):** `prisma-sase-setup` wrote to the wrong file on any
+  machine whose app directory is not literally `Claude/`. Third-party and
+  enterprise builds use a suffix — `Claude-3p/` is the one seen in the field —
+  and the wizard hardcoded `Claude/`, so it reported success into a file the
+  running app never reads: credentials present, no tools, no error anywhere.
+  It now scans for every `Claude*` config and, when a machine has more than
+  one, lists them — each with the MCP server names it already holds, never a
+  value — and asks which to write. Guessing is the failure mode here, so it
+  does not guess. `PRISMA_PANEL_CONFIG=<path>` answers ahead of time for
+  unattended runs.
+  Two follow-ups from a second machine. **Windows searched only `%APPDATA%`**,
+  and a `Claude-3p` install was found keeping its config under
+  `%LOCALAPPDATA%` — the suffixed *name* was handled, the parent directory was
+  assumed, and the result was the same silent write to a file nothing reads.
+  Both bases are searched now. And **the listing said nothing about which
+  build each config belonged to**: `-3p` is the custom-gateway build,
+  unsuffixed is subscription, and two fresh installs both hold zero servers —
+  so on the machine where the choice matters, the prompt offered two paths
+  that differed only by a directory name. Each entry is now labelled by build.
+  The old hint that the most recently modified one is "usually the one in use"
+  is gone: both are real installs, and mtime says which was last written, not
+  which you work in.
+- **FIX (Windows launch, high):** the server died at startup with uv's
+  *"Git executable not found. Ensure that Git is installed and available"* on
+  a machine where git was installed, on `PATH`, and working in every shell —
+  so the message pointed at the one thing that was not wrong. The host passes
+  the server a fixed allow-list of environment variables and **`PATHEXT` is
+  not on it**; with `PATHEXT` absent Windows appends nothing when resolving a
+  bare name, so `git` was looked up literally and never matched `git.exe`.
+  The entry now carries a `PATHEXT`. The verifier could not have caught this
+  — its git check swapped `PATH` and inherited everything else, `PATHEXT`
+  included — so it now runs git in a child built from the host's allow-list
+  plus the entry's own `env`, and nothing more. Also: the directory `git` was
+  actually found in joins the emitted `PATH` alongside uvx's, since
+  `C:\Program Files\Git\cmd` is only where the usual installer puts it.
+- **FIX (diagnosis, high):** the plugin **stopped accusing correctly-installed
+  users of a host bug.** 0.8.8 treated "enabled, but `settings.json` holds no
+  `pluginConfigs` entry" as proof the enable dialog never ran — a sound
+  inference *while the plugin declared `userConfig`*. 0.9.0 removed
+  `userConfig`, which makes that state exactly what a **correct** install looks
+  like. Every new user was being told "This is a HOST issue" and sent hunting
+  for a dialog that no longer exists. The `never_configured` diagnosis is gone;
+  only evidence that actually arrived at this process (a value that is blank,
+  or a literal `${...}`) is reported now, as a *configuration* problem rather
+  than a host one. Absence of evidence stopped being evidence when the
+  architecture moved.
+- **FIX:** `--selfcheck` no longer says NOT READY when it simply cannot see
+  the Local MCP entry's `env` — which, by design, it never can from an
+  ordinary shell. It now says so and points at setup.
+- **FIX:** `from prisma_sase_mcp.tools.status import get_sase_status` — the
+  MCP-free escape hatch the Skill documents as a design guarantee — actually
+  works. The `sys.path` shim lived only in `__main__`, so the documented import
+  raised `ModuleNotFoundError` unless you came in through the console script.
+  Both this and the misdiagnosis above are pinned by regression tests.
+- **CHG:** one marketplace entry (`prisma-sase`) instead of three. With no
+  launcher in the plugin there is nothing to vary per OS, so
+  `prisma-sase-mac` / `-linux` / `-windows` are retired along with the "match
+  your OS" instruction. `tools/build-standalone.py` now emits a single
+  `dist/prisma-sase.plugin`, and fails the build if anything re-introduces
+  `mcpServers` or `userConfig` into the plugin — that would launch a second,
+  version-pinned copy of the server alongside the uvx one.
+- **CHG:** `mcp/` moved to `src/prisma_sase_mcp/` (a proper Python package with
+  `pyproject.toml`), and the version now has a fourth declaration point,
+  `pyproject.toml`, checked in lockstep with the other three.
+
 ## 0.8.8 — 2026-07-27
 
 The **host** enables the plugin without ever running the `userConfig` dialog,

@@ -1,9 +1,11 @@
 @echo off
-rem One-shot setup for the prisma-sase MCP server (Windows).
-rem Mirrors install.sh:
+rem Venv-based setup for the prisma-sase MCP server (Windows) -- the FALLBACK.
+rem Since 0.9.0 the normal install is uvx and needs none of this:
+rem   uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
+rem Use this when uv is unavailable or blocked. Mirrors install.sh:
 rem   1. Finds a Python >= 3.10 (py launcher or python on PATH).
 rem   2. Creates a venv at %USERPROFILE%\.prisma-sase-venv (override: PRISMA_VENV).
-rem   3. Installs mcp\requirements.txt into it.
+rem   3. Installs requirements.txt into it.
 rem   4. Creates the %USERPROFILE%\.prisma-sase.env credential template.
 rem   5. Runs a mock-mode selfcheck to prove the server starts.
 
@@ -48,7 +50,7 @@ rem -- 3) dependencies ------------------------------------------------------
 echo -- installing dependencies (fastmcp, httpx)
 "%VENV%\Scripts\python.exe" -m pip install --quiet --upgrade pip
 if errorlevel 1 echo WARNING: pip self-upgrade failed -- continuing with the bundled pip. 1>&2
-"%VENV%\Scripts\python.exe" -m pip install --quiet -r "%DIR%mcp\requirements.txt"
+"%VENV%\Scripts\python.exe" -m pip install --quiet -r "%DIR%requirements.txt"
 if errorlevel 1 (
   echo ERROR: dependency install failed ^(fastmcp, httpx^). 1>&2
   echo   Most common cause: no network access to pypi.org ^(offline, firewall, 1>&2
@@ -82,7 +84,7 @@ if not exist "%ENVF%" (
 rem -- 5) selfcheck (offline, no credentials needed) ------------------------
 echo -- running selfcheck (mock mode)
 set "PRISMA_MOCK=1"
-"%VENV%\Scripts\python.exe" "%DIR%mcp\server.py" --selfcheck
+"%VENV%\Scripts\python.exe" "%DIR%server.py" --selfcheck
 set "PRISMA_MOCK="
 
 echo.
@@ -90,14 +92,16 @@ echo == install complete ==
 echo venv python : %VENV%\Scripts\python.exe
 echo next steps  :
 echo   1. Fill in your read-only service-account values in %ENVF%
-echo   2. Install the plugin -- recommended: add the GitHub marketplace
-echo      (Settings ^> Plugins ^> Add marketplace ^> Add from a repository),
-echo      then install prisma-sase-windows (the Windows variant).
-echo      No git access? Build and upload a standalone file instead:
-echo      python tools\build-standalone.py, then Settings ^> Plugins ^> Upload from file.
-echo      (mcp\run.cmd finds this venv automatically -- no config edits needed.)
-echo   3. Verify:  "%VENV%\Scripts\python.exe" "%DIR%mcp\server.py" --selfcheck
-echo   4. First run against a new tenant: ask Claude to run discover_insights
+echo   2. Register the server. Settings ^> Extensions/Connectors ^> Local MCP
+echo      servers, add an entry named prisma-sase with:
+echo        command : %VENV%\Scripts\python.exe
+echo        args    : %DIR%server.py
+echo      (or point it at run.cmd, which finds this venv on its own).
+echo   3. Optional: install the Skill for the diagnostic runbooks --
+echo      /plugin marketplace add eric2q/prisma-sase-plugin
+echo      /plugin install prisma-sase@prisma-sase
+echo   4. Verify:  "%VENV%\Scripts\python.exe" "%DIR%server.py" --selfcheck
+echo   5. First run against a new tenant: ask Claude to run discover_insights
 exit /b 0
 
 :find

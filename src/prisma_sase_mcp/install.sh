@@ -1,14 +1,23 @@
 #!/usr/bin/env bash
-# One-shot setup for the prisma-sase MCP server.
+# Venv-based setup for the prisma-sase MCP server -- the FALLBACK path.
+#
+# Since 0.9.0 the normal install is uvx, which needs none of this:
+#
+#     uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
+#
+# uvx builds the environment itself and re-resolves the git ref on every
+# launch, so you stay current. Use this script instead when uv is unavailable
+# or blocked -- an air-gapped host, a locked-down build image, or a checkout
+# you want to run and edit in place.
 #
 # What it does:
 #   1. Finds a Python >= 3.10 (fastmcp's floor; macOS system python3 is often 3.9).
 #   2. Creates a venv at ~/.prisma-sase-venv (override with PRISMA_VENV).
-#   3. Installs mcp/requirements.txt into it.
+#   3. Installs requirements.txt into it.
 #   4. Runs a mock-mode selfcheck to prove the server starts.
 #
-# After this, the plugin's mcp/run.sh finds the venv automatically -- no config
-# edits needed. Written for bash 3.2 (macOS default) compatibility.
+# After this, run.sh (in this directory) finds the venv automatically -- no
+# config edits needed. Written for bash 3.2 (macOS default) compatibility.
 set -eu
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -78,7 +87,7 @@ echo "-- installing dependencies (fastmcp, httpx)"
 if ! "$VENV/bin/python" -m pip install --quiet --upgrade pip; then
   echo "WARNING: pip self-upgrade failed -- continuing with the bundled pip." >&2
 fi
-if ! "$VENV/bin/python" -m pip install --quiet -r "$DIR/mcp/requirements.txt"; then
+if ! "$VENV/bin/python" -m pip install --quiet -r "$DIR/requirements.txt"; then
   echo "ERROR: dependency install failed (fastmcp, httpx)." >&2
   echo "  Most common cause: no network access to pypi.org (offline, firewall," >&2
   echo "  or corporate proxy)." >&2
@@ -88,22 +97,20 @@ if ! "$VENV/bin/python" -m pip install --quiet -r "$DIR/mcp/requirements.txt"; t
   exit 1
 fi
 
-# 4) credential file template (the fallback path -- marketplace installs use
-#    the plugin's enable dialog, whose secret lands in OS secure storage. This
-#    file covers cloud sessions, CI and hosts without the dialog, and is also
-#    where the non-credential PRISMA_* tuning variables live. On macOS it is
-#    the reliable mechanism when GUI apps do not inherit launchctl setenv;
-#    empty lines are ignored by the server)
+# 4) credential file template. On this fallback path there is no Local MCP
+#    panel entry to carry the variables, so the file is how the server is
+#    configured -- it is also where the non-credential PRISMA_* tuning
+#    variables live. On macOS it is the reliable mechanism when GUI apps do
+#    not inherit launchctl setenv; empty lines are ignored by the server.
 ENVF="$HOME/.prisma-sase.env"
 if [ ! -f "$ENVF" ]; then
   cat > "$ENVF" <<'EOF'
 # prisma-sase credentials (KEY=VALUE, no quotes needed).
 # Keep it private: chmod 600 ~/.prisma-sase.env
 #
-# Marketplace installs: the plugin's enable dialog (userConfig) can supply all
-# four values -- the secret then lives in your OS secure storage and every
-# line here may stay empty. This file remains the path for cloud sessions,
-# CI, and hosts without the dialog.
+# This file is the venv/fallback path. The normal uvx install carries these
+# same four values as environment variables on the Local MCP servers entry
+# instead -- if you have one of those, it wins and this file can stay empty.
 PRISMA_CLIENT_ID=
 PRISMA_TSG_ID=
 PRISMA_REGION=sg
@@ -125,27 +132,26 @@ fi
 
 # 5) prove the server starts (offline, no credentials needed)
 echo "-- running selfcheck (mock mode)"
-PRISMA_MOCK=1 "$VENV/bin/python" "$DIR/mcp/server.py" --selfcheck
+PRISMA_MOCK=1 "$VENV/bin/python" "$DIR/server.py" --selfcheck
 
 echo ""
 echo "== install complete =="
 echo "venv python : $VENV/bin/python"
 echo "next steps  :"
-echo "  1. Install the plugin -- recommended: add the GitHub marketplace"
-echo "     (Settings > Plugins > Add marketplace > Add from a repository),"
-echo "     then install prisma-sase-mac or prisma-sase-linux to match your OS."
-echo "     No git access? Build and upload a standalone file instead:"
-echo "     python3 tools/build-standalone.py, then Settings > Plugins > Upload from file."
-echo "     (mcp/run.sh finds this venv automatically -- no config edits needed.)"
-echo "  2. Credentials: ENABLING the plugin should prompt for the four values."
-echo "     That is the best path -- the secret goes to secure storage and you"
-echo "     do not need the file created above at all."
-echo "     Never prompted? Then use one of these and restart the app:"
+echo "  1. Register the server. Settings > Extensions/Connectors > Local MCP"
+echo "     servers, add an entry named prisma-sase with:"
+echo "       command : $VENV/bin/python"
+echo "       args    : $DIR/server.py"
+echo "     (or point it at run.sh, which finds this venv on its own)."
+echo "  2. Credentials -- pick ONE and restart the app:"
 echo "       bash \"$DIR/setup-keychain.sh\"   # secret -> keychain, file stays clean"
 echo "       or fill in $ENVF   # simplest, but the secret sits on disk"
-echo "     (Create the read-only service account in Strata Cloud Manager first."
-echo "      Details + how to re-trigger the dialog: plugin/README.md)"
-echo "  3. Verify:  $VENV/bin/python \"$DIR/mcp/server.py\" --selfcheck"
-echo "  4. First run against a real tenant: ask Claude to run discover_insights"
-echo "     (or:  $VENV/bin/python \"$DIR/mcp/server.py\" --discover )"
+echo "     (Create the read-only service account in Strata Cloud Manager first"
+echo "      -- see the README.)"
+echo "  3. Optional: install the Skill for the diagnostic runbooks --"
+echo "     /plugin marketplace add eric2q/prisma-sase-plugin"
+echo "     /plugin install prisma-sase@prisma-sase"
+echo "  4. Verify:  $VENV/bin/python \"$DIR/server.py\" --selfcheck"
+echo "  5. First run against a real tenant: ask Claude to run discover_insights"
+echo "     (or:  $VENV/bin/python \"$DIR/server.py\" --discover )"
 echo "     to find your tenant's real Insights resource/view names."

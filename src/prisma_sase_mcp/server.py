@@ -141,31 +141,28 @@ def _selfcheck():
     print("  region:       %s" % (d["region"] or "(not set)"))
     print("  credentials:  %s" % ("all 4 required vars set" if not d["missing"]
                                   else "MISSING: " + ", ".join(d["missing"])))
-    # userConfig values reach the MCP server process only -- a hand-run
-    # selfcheck cannot see them. Say so loudly, or the "MISSING" line above
-    # gets read as "the user never configured the plugin" (it did, once).
+    # Credentials reach the server through the Local MCP entry's env block --
+    # which lives in the HOST's own config, not in settings.json and not in
+    # this shell. A hand-run selfcheck therefore cannot see them, so "MISSING"
+    # above is expected here and proves nothing either way.
     _pcfg = config.plugin_config_snapshot()
-    # enabled_but_unconfigured is the opposite of "configured" -- it must never
-    # take the reassuring branch below, or selfcheck reproduces the very
-    # false-positive the settings UI already gives (masked dots for values that
-    # do not exist).
+    # Only a LEGACY pinned install (0.8.x, userConfig) can still be "configured
+    # via the dialog". Since 0.9.0 the plugin declares no userConfig at all, so
+    # enabled-with-no-entry is the NORMAL shape and must stay silent -- printing
+    # it told correct installs they were broken.
     _configured = bool(_pcfg) and not _pcfg.get("enabled_but_unconfigured")
-    if _pcfg and _pcfg.get("enabled_but_unconfigured"):
-        print("  plugin config: %s is ENABLED but has NO configuration entry "
-              "in\n                 %s -- the enable dialog never collected "
-              "anything.\n                 (Host issue: see the diagnosis "
-              "below.)"
-              % (_pcfg["plugin_id"], _pcfg["settings_path"]))
-    elif _pcfg:
-        print("  plugin config: %s has %s set via the enable dialog"
+    if _configured:
+        print("  plugin config: %s has %s set via the legacy enable dialog"
               % (_pcfg["plugin_id"], ", ".join(_pcfg["keys"]) or "no options"))
-        if d["missing"]:
-            print("                 ^ NOTE: those values are injected into the "
-                  "MCP SERVER process only, so they are invisible here. A "
-                  "'MISSING' line above is EXPECTED when running selfcheck by "
-                  "hand and does NOT mean the plugin is unconfigured. The "
-                  "Client Secret lives in OS secure storage and never appears "
-                  "in %s." % _pcfg["settings_path"])
+    if d["missing"]:
+        print("                 NOTE: since 0.9.0 credentials come from the "
+              "Local MCP servers\n                 entry named 'prisma-sase', "
+              "whose env block is visible only to the\n                 server "
+              "process the app launches. A 'MISSING' line above is "
+              "EXPECTED\n                 in a hand-run selfcheck and does NOT "
+              "mean you are unconfigured.\n                 Confirm the real "
+              "answer by asking Claude to run get_sase_status\n"
+              "                 after a full restart.")
     _src = {"environment": "environment (host/userConfig dialog or shell)",
             "env_file": "env file (PLAINTEXT -- consider the userConfig "
                         "dialog or PRISMA_SECRET_CMD)",
@@ -212,7 +209,7 @@ def _selfcheck():
         print("\nRESULT: READY (mock mode -- no live API calls)")
         return 0
     if d["missing"] and _diag:
-        print("\nRESULT: NOT READY -- the HOST did not supply credentials.\n"
+        print("\nRESULT: NOT READY -- credentials arrived malformed.\n"
               "  %s" % _diag["message"])
         return 1
     if d["missing"] and _configured and not d["unexpanded_placeholders"]:
@@ -223,6 +220,20 @@ def _selfcheck():
               "to run get_sase_status after a full app restart."
               % ", ".join(_pcfg["keys"]))
         return 0
+    if d["missing"] and not d["unexpanded_placeholders"]:
+        # No malformed values, nothing configured: the ordinary state of a
+        # fresh install. Point at setup rather than implying a fault -- and do
+        # not call it NOT READY without qualification, because a hand-run
+        # selfcheck cannot see the Local MCP entry's env even when it is right.
+        print("\nRESULT: NO CREDENTIALS VISIBLE HERE.\n"
+              "  If you have not set up yet, run the guided setup:\n"
+              "    uvx --from git+https://github.com/eric2q/prisma-sase-plugin "
+              "prisma-sase-setup\n"
+              "  If you already have a Local MCP entry for 'prisma-sase', this "
+              "is expected --\n  its env reaches the server process only. Ask "
+              "Claude to run get_sase_status.\n"
+              "  (PRISMA_MOCK=1 runs every tool offline meanwhile.)")
+        return 1
     if d["missing"] or d["unexpanded_placeholders"]:
         print("\nRESULT: NOT READY -- fix the items above "
               "(or set PRISMA_MOCK=1 to try the tools offline).")
@@ -411,12 +422,12 @@ def main():
                     ", ".join(d["unexpanded_placeholders"]),
                     config.placeholder_hint())
     if d["empty_from_host"]:
-        log.warning("the host set these to EMPTY strings: %s",
+        log.warning("these arrived as EMPTY strings: %s",
                     ", ".join(d["empty_from_host"]))
     if config.MOCK_MODE:
         log.info("Starting in MOCK mode (PRISMA_MOCK set) -- no live API calls.")
     elif d["userconfig_diagnosis"]:
-        log.warning("CREDENTIALS NOT SUPPLIED BY THE HOST [%s] -- %s",
+        log.warning("CREDENTIALS ARRIVED MALFORMED [%s] -- %s",
                     d["userconfig_diagnosis"]["kind"],
                     d["userconfig_diagnosis"]["message"])
     elif d["missing"]:

@@ -1,14 +1,27 @@
-# Prisma SASE plugin (Phase 1 — read-only PoC)
+# Prisma SASE plugin — the `prisma-sase-ops` Skill
 
-An AI-assistant integration for **Prisma SASE / Prisma Access**: a read-only MCP
-server plus the `prisma-sase-ops` Skill, packaged as a single Cowork/Claude
-plugin. Ask Claude about tenant health, alerts, tunnel status, connected users,
-and ADEM experience scores in natural language.
+This plugin ships **one thing: the `prisma-sase-ops` Skill** — the decision
+tree for choosing between the Prisma SASE tools, the thresholds for reading
+their numbers, diagnostic runbooks, and a weekly-report template.
 
-> **Read-only by design.** Every tool only *queries*. There is no write / commit
-> / config-push path anywhere in this plugin (design doc sec.10.1).
+**The tools themselves are not in here.** Since 0.9.0 the read-only MCP server
+installs separately, as a Local MCP server launched through `uvx`, so it
+updates itself on every app restart instead of waiting for a plugin update.
+One command sets it up:
 
-### Tools (Phase 1)
+```bash
+uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
+```
+
+Full install instructions, prerequisites and the update model are in the
+[repository README](../README.md) ([繁體中文](../README.zh-TW.md)). This page
+is the reference material: the API-key walkthrough, credential storage,
+troubleshooting, and every environment variable.
+
+> **Read-only by design.** Every tool only *queries*. There is no write /
+> commit / config-push path anywhere (design doc sec.10.1).
+
+### Tools the Skill drives
 
 | Tool | What it answers |
 |---|---|
@@ -19,85 +32,97 @@ and ADEM experience scores in natural language.
 | `get_remote_networks` | Per-tunnel status rows (RN/SC): up/down, site, throughput; filter `state="down"` |
 | `discover_insights` | Diagnostic: probe which Insights resource/view names your tenant actually accepts (read-only) |
 
-These tools sit on 2 of the ~15 Prisma SASE API families PANW publishes
-(Insights 3.0 + ADEM). The full landscape — every family on pan.dev, what's
-covered today, what's a read-only Phase-2 candidate (Service Status, ADEM app
-metrics, Aggregate Monitoring for MSP, SD-WAN monitor, Subscription quotas),
-and what the read-only design excludes (all `/sse/config` + push/jobs) — is
-catalogued in
+These sit on 2 of the ~15 Prisma SASE API families PANW publishes (Insights
+3.0 + ADEM). The full landscape — every family on pan.dev, what's covered
+today, what's a read-only Phase-2 candidate (Service Status, ADEM app metrics,
+Aggregate Monitoring for MSP, SD-WAN monitor, Subscription quotas), and what
+the read-only design excludes (all `/sse/config` + push/jobs) — is catalogued
+in
 [`skills/prisma-sase-ops/references/api-catalog.md`](skills/prisma-sase-ops/references/api-catalog.md).
 
-## If the tools don't show up: two places to look
+## If the tools don't show up
 
-Reach for these **before** anything else — they were built for exactly the
-moment when the plugin appears installed but no Prisma SASE tools exist:
+**First, check whether you installed the other half.** Installing this plugin
+gives you the Skill and *no tools* — that is the normal intermediate state, not
+a broken install. If you have not run `prisma-sase-setup` yet, run it; if you
+have, restart the app completely (macOS ⌘Q — closing the window does not
+relaunch MCP servers).
 
-1. **Ask Claude to run `prisma_sase_setup_required`.** When the real server
+Then, in order:
+
+1. **Run the server by hand.** It prints what it found, and never a credential
+   value:
+   ```bash
+   uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-mcp --selfcheck
+   ```
+   A missing `uvx` on `PATH` is the most common cause of a server that never
+   starts: the app does not give MCP servers a login shell's `PATH`, which is
+   why the generated entry sets `PATH` explicitly. If `which uvx` prints
+   somewhere not in that list, add it.
+
+   ⚠️ A `credentials: MISSING` line in a hand-run selfcheck is **expected** and
+   does not mean you are unconfigured. The Local MCP entry's `env` block is
+   visible only to the server process the app launches, never to your shell.
+
+2. **Ask Claude to run `prisma_sase_setup_required`.** When the real server
    can't start (missing dependencies, Python too old), a dependency-free
    fallback server takes its place and exposes this single tool; calling it
-   returns the diagnosis and the copy-paste fix. Its description alone
-   already names the problem.
-2. **Read the launch breadcrumb: `~/.prisma-sase-launch.log`.** Every launch
-   rewrites it, so it always describes the latest attempt:
+   returns the diagnosis and the copy-paste fix. Its description alone already
+   names the problem.
+
+3. **Read the launch breadcrumb: `~/.prisma-sase-launch.log`.** Written by the
+   `run.sh` launch path and by the server itself:
 
    | Line | Meaning |
    |---|---|
-   | *file missing entirely* | the host never ran the launcher — the MCP server was not even attempted |
-   | `run.sh invoked ...` | launch started |
-   | `WARNING: ... not executable (broken venv?)` | the venv's interpreter is dangling (typically after a Python upgrade) — recreate it |
-   | `note: ... not present` | no venv, so a system interpreter was used — it likely has no packages |
+   | *file missing entirely* | nothing ever launched — the Local MCP entry is absent, misspelled, or the host has not been restarted |
+   | `run.sh invoked ...` | launch started (venv path) |
+   | `WARNING: ... not executable (broken venv?)` | a venv interpreter is dangling (typically after a Python upgrade) — recreate it, or move to `uvx` |
    | `launching with <path>` | the interpreter that was chosen |
    | `FATAL: ...` | the exact cause of death (no Python ≥ 3.10, version floor, missing packages) |
 
-After fixing anything, **restart the Claude app completely** (macOS: ⌘Q —
-closing the window does not relaunch plugin servers).
+4. **Check you edited the config the app actually reads.** A machine can have
+   more than one Claude build installed, each with its own directory and its
+   own config: `Claude-3p/` is the **custom-gateway** build, plain `Claude/`
+   is the **subscription** one. Both are ordinary installs — neither is the
+   wrong one — but each reads only its own file, so configuring the build you
+   don't run looks like it worked and produces no tools. To see which exist:
+   ```bash
+   ls -d ~/Library/Application\ Support/Claude*
+   ```
+   `prisma-sase-setup` scans for all of them and, when there is more than one,
+   lists them — labelled by build — and asks which to write. It does not
+   guess, because nothing on disk reveals which one you work in. Configure
+   both by running it twice. To skip the question (or when running
+   unattended), set `PRISMA_PANEL_CONFIG=<path> prisma-sase-setup`.
 
-## Requirements
+   (Linux: `~/.config/Claude*`. Windows: both `%APPDATA%\Claude*` **and**
+   `%LOCALAPPDATA%\Claude*` — builds differ on which they use, and a
+   `Claude-3p` install was found under `Local` in the field.)
 
-- **Python ≥ 3.10** (fastmcp's floor). ⚠️ On macOS the built-in `python3` is
-  often **3.9** — it will NOT work. `install.sh` handles this for you.
-  On Debian/Ubuntu, `venv`/`pip` are separate packages — if missing,
-  `install.sh` prints the exact `sudo apt install python3-venv python3-pip`
-  fix.
-- macOS / Linux (`bash`), or Windows (see the **Windows install** section —
-  Windows uses its own package variant `prisma-sase-windows.plugin`).
-- A Prisma SASE **read-only** service account (step 3 below).
+5. **Windows: `Git executable not found` when git is installed.** The full
+   message is uv's — *"Git executable not found. Ensure that Git is installed
+   and available"* — and it appears on machines where git is on `PATH` and
+   works in every shell you try. It is not a `PATH` problem, so adding git to
+   `PATH` again changes nothing.
 
-## Install on Claude Desktop / Cowork
+   The app passes the server only a fixed list of environment variables
+   (`APPDATA`, `PATH`, `SYSTEMROOT` and a handful more). **`PATHEXT` is not on
+   that list**, so it does not exist in the server process — and with no
+   `PATHEXT`, Windows appends nothing when resolving a bare command name.
+   `git` is looked up as a literal filename and never matches `git.exe`.
 
-> **Team install (recommended): via the GitHub marketplace.** Add the repo in
-> **Settings → Plugins → Add marketplace → Add from a repository**, then
-> install `prisma-sase-mac`, `prisma-sase-linux`, or `prisma-sase-windows` (match your OS) —
-> updates then arrive with one click. See the repo-root README. The steps
-> below (upload from file) remain for machines without git access; machine
-> setup (step 1) is required either way.
+   The fix is one line in the entry's `env`, which `prisma-sase-setup` now
+   writes for you. If you built the entry by hand, add:
+   ```
+   PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.JS;.WSF;.MSC
+   ```
 
-**Step 1 — run the setup script** (from the unzipped plugin folder):
+## Getting the API key — a read-only service account
 
-```bash
-bash install.sh
-```
-
-It finds a suitable Python (tells you to `brew install python@3.12` if there is
-none), creates `~/.prisma-sase-venv`, installs the dependencies, and proves the
-server starts with an offline selfcheck. The plugin's launcher (`mcp/run.sh`)
-finds this venv automatically — you never edit `.mcp.json`.
-
-**Step 2 — install the plugin file.** In Claude Desktop:
-**Settings → Plugins → Upload from file** → pick the variant matching your OS
-(`prisma-sase-mac.plugin` / `prisma-sase-linux.plugin` /
-`prisma-sase-windows.plugin`, built via `python3 tools/build-standalone.py`).
-
-> ⚠️ Two paths that look right but are NOT an install:
-> - **Putting the plugin folder into a Project folder does nothing** — Claude
->   Desktop does not auto-register plugins found in project directories.
-> - **"Add marketplace" only accepts git repos/URLs.** You do not need a GitHub
->   repo — local installs go through **Upload from file**.
-
-**Step 3 — create a read-only service account (the "API key").** The API key
-is a service account's **Client ID + Client Secret**, created in Strata Cloud
-Manager (SCM) in four steps (figures are schematic redrawings; tenant
-identifiers masked; red badges ①–⑤ number the flow):
+The API key is a service account's **Client ID + Client Secret**, created in
+Strata Cloud Manager (SCM) in four steps (figures are schematic redrawings;
+tenant identifiers masked; red badges ①–⑤ number the flow):
 
 1. **Open Identity & Access Management** — gear icon (System Settings, ①) at
    the bottom of SCM's left menu → **Identity & Access Management** (②) →
@@ -129,60 +154,28 @@ identifiers masked; red badges ①–⑤ number the flow):
 
 Never paste the Client Secret into a chat — the tools take no credential
 parameters by design; if a secret leaks, rotate it in SCM and update wherever
-it is stored (enable dialog, env file, or secret store).
+it is stored.
 
-**Step 4 — provide the four variables.** Three supported sources, in the
-order the server resolves them:
+## Where the four values live
 
-1. **The plugin enable dialog (userConfig — the recommended path).** Claude
-   prompts for the four values when the plugin is enabled. This is a core
-   plugin feature, **not** Desktop-only: the Claude Code CLI prompts for
-   them too, so a CLI install does not need an env file. The Client Secret
-   is declared `sensitive`, so it is masked on entry and stored in secure
-   storage rather than `settings.json` — the macOS Keychain, or
-   `~/.claude/.credentials.json` on platforms with no supported keychain.
-   The other three land in `~/.claude/settings.json` under
-   `pluginConfigs[<plugin-id>].options`. If your host is too old to expand
-   the dialog values, the server detects the literal `${user_config.*}`
-   placeholders, treats them as unset, and falls through to the env file —
-   `--selfcheck` names exactly what happened.
-2. **The env file** — the fallback wherever there is no dialog (cloud
-   sessions, CI, hand-installed checkouts), and the only home for the
-   non-credential `PRISMA_*` tuning variables listed at the end of this file,
-   which the dialog does not cover (`install.sh` already created a template):
+The server resolves them in a fixed order, and the first source that supplies
+a value wins:
 
-   ```bash
-   # fill in ~/.prisma-sase.env (created by install.sh, chmod 600):
-   PRISMA_CLIENT_ID=svc-...@....iam.panserviceaccount.com
-   PRISMA_CLIENT_SECRET=...
-   PRISMA_TSG_ID=1234567890
-   PRISMA_REGION=sg
-   ```
+```
+1. environment        -- the Local MCP entry's `env` block, injected by the host
+2. env file           -- ~/.prisma-sase.env, only for values step 1 did not supply
+3. PRISMA_SECRET_CMD  -- only if the Client Secret is still unset
+```
 
-   The file is read no matter how the app was launched, which is what makes
-   it a dependable fallback on macOS: GUI apps started from Finder/Dock/
-   Spotlight are **not guaranteed to inherit `launchctl setenv` variables**
-   — on many machines they simply never arrive (field-verified), so exporting
-   the four values into your shell is not a reliable substitute. Custom
-   location: `PRISMA_ENV_FILE`.
-3. **`PRISMA_SECRET_CMD`** — keep everything except the secret in the env
-   file and fetch the secret from a secret store at startup, so the file
-   contains nothing sensitive. **One command sets this up:**
+An empty string counts as *not supplied*, so a blank key in the entry falls
+through to the file rather than silently winning.
 
-   ```bash
-   bash plugin/setup-keychain.sh
-   ```
+**Ranked by how well each protects the secret:**
 
-   It prompts for the secret (hidden — never a command-line argument, which
-   would be visible in `ps`), stores it in the platform's keychain (macOS
-   Keychain / `secret-tool` / `pass`), and writes a `~/.prisma-sase.env` with
-   the three non-secret values plus the right `PRISMA_SECRET_CMD` line. It
-   preserves tuning variables already in the file, and if the file previously
-   held a plaintext secret it tells you to rotate it. Other modes:
-   `--show` (what is stored, changes nothing), `--remove`, and `--stdin` for
-   unattended use.
-
-   To wire it by hand instead:
+1. **`PRISMA_SECRET_CMD`** — the entry (or env file) holds a *command*, and
+   the secret itself stays in your OS keychain. The only arrangement where the
+   secret is not stored in readable form anywhere. This is what
+   `prisma-sase-setup` configures by default:
 
    ```bash
    PRISMA_SECRET_CMD=security find-generic-password -s prisma-sase -a client_secret -w   # macOS
@@ -190,142 +183,72 @@ order the server resolves them:
    # pass show prisma-sase/client_secret                                # pass
    # op read "op://Private/prisma-sase/client secret"                   # 1Password
    ```
-   (Store it first, e.g. macOS: `security add-generic-password -s
-   prisma-sase -a client_secret -w`.) `--selfcheck` shows which source
-   supplied the secret.
 
-   **This is the recommended fallback when the dialog is unavailable** — it
-   is the only option other than the dialog that keeps the secret out of a
-   plaintext file.
+   On **Windows** the store is DPAPI, driven through PowerShell — there is no
+   `security` equivalent, and `cmdkey` will not print a password back, so it
+   cannot serve as a fetch command. `prisma-sase-setup` keeps the encrypted
+   blob in `%LOCALAPPDATA%\prisma-sase\` and emits the PowerShell that
+   decrypts it. DPAPI binds the blob to *this user on this machine*: copying
+   it elsewhere yields a file nobody can read. It is `-Command`, not `-File`,
+   so an execution policy of `AllSigned` or `Restricted` does not block it.
 
-*Plain environment variables* also work when your launch method reliably
-forwards them (starting the app from a terminal, a managed-device profile):
-the server inherits them, and a real environment value always wins over the
-env file. This is the same channel the enable dialog uses — it injects the
-four values into the server process — which is why a `--selfcheck` run from
-an ordinary shell cannot see dialog-supplied credentials and reports them as
-missing.
+   `bash setup-keychain.sh` (shipped in `src/prisma_sase_mcp/`) wires this by
+   hand if you prefer: it prompts for the secret hidden — never as a
+   command-line argument, which `ps` would expose — stores it, and writes the
+   matching env file. Modes: `--show`, `--remove`, `--stdin`.
 
-**Verify any time** (no credentials needed with mock):
+2. **The Local MCP servers entry's `env` block.** ⚠️ It is settings UI, but it
+   is **not secure storage** — the values are written as plain JSON in the
+   host's config file. Fine for the Client ID, TSG ID and region; think twice
+   before putting the secret there.
+
+3. **`~/.prisma-sase.env`** (`chmod 600`) — the fallback wherever there is no
+   panel: cloud sessions, CI, hand-installed checkouts. It is also the home for
+   the non-credential `PRISMA_*` tuning variables listed at the end of this
+   page, which no UI covers.
+
+   ```bash
+   # ~/.prisma-sase.env  -- chmod 600
+   PRISMA_CLIENT_ID=apikey@1234567890.iam.panserviceaccount.com
+   PRISMA_CLIENT_SECRET=...
+   PRISMA_TSG_ID=1234567890
+   PRISMA_REGION=sg
+   ```
+
+   The file is read no matter how the app was launched, which is what makes it
+   a dependable fallback on macOS: GUI apps started from Finder/Dock/Spotlight
+   are **not guaranteed to inherit `launchctl setenv` variables** — on many
+   machines they simply never arrive (field-verified), so exporting the four
+   values into your shell is not a reliable substitute. Custom location:
+   `PRISMA_ENV_FILE`.
+
+**Verify any time**, without revealing anything:
 
 ```bash
-~/.prisma-sase-venv/bin/python mcp/server.py --selfcheck
+uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup --show
+uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-mcp --selfcheck
 ```
 
-It reports the interpreter, packages, env file, credentials, and any unexpanded
-`${...}` placeholders, ending with READY / NOT READY and the exact fix.
+## When the tools report missing credentials
 
-## When the enable dialog never asked for anything
-
-**The symptom.** Every tool fails with *"Missing required context"* or
-*"Missing PRISMA_CLIENT_ID"*, you were never shown a form asking for the four
-values, and Settings → Plugins shows the credentials as rows of masked dots
-that look configured.
-
-⚠️ **Those masked dots are not evidence of anything.** The mask is
-fixed-width and content-independent — it renders identically for a 45-character
-Client ID and for an empty string. Do not conclude from that screen that
-credentials exist.
-
-**Confirm it in one command:**
-
-```bash
-~/.prisma-sase-venv/bin/python mcp/server.py --selfcheck
-```
-
-If the host is the cause, the report says so outright — `ENABLED but has NO
-configuration entry`, a `host env: WARNING -- set but EMPTY` line, and a
-`DIAGNOSIS:` line naming one of three kinds:
+`get_sase_status` reports this as `credentials_not_supplied`, with a `kind`:
 
 | `kind` | What happened | What fixes it |
 |---|---|---|
-| `expanded_empty` | The host substituted `${user_config.*}` with **empty strings** — it never collected the values | Re-trigger the dialog; if it still doesn't appear, use the stopgap below |
-| `never_configured` | The host lists the plugin as enabled but holds **no configuration entry** for it | Same |
-| `unexpanded` | The host passed the literal `${user_config.*}` through — it cannot expand them at all | Update the host/plugin; use the stopgap meanwhile |
+| `expanded_empty` | The values arrived as **empty strings** — set, but with nothing in them. Usually a blank `env` key in the Local MCP entry | Re-run `prisma-sase-setup`, or fill the blank key in by hand |
+| `unexpanded` | A literal `${...}` came through — something copied a template without substituting it | Replace the placeholder with the real value in the entry |
 
-In-conversation, `get_sase_status` reports the same verdict as
-`credentials_not_supplied` with `whose_fault: "host"`.
+Both are **configuration** problems — `whose_fault: "configuration"`, never a
+tenant outage and never something in the plugin. No change to the API key or
+the tenant can fix a value that arrived blank.
 
-**This is a host-side problem, not something you misconfigured.** No change to
-the plugin, the API key, or the tenant can populate values the host never
-collected. (Filed upstream:
+**Not on this list, deliberately:** "no credentials visible at all." Since
+0.9.0 that is what a *correct* install looks like from outside the server
+process, so it is not diagnosed as a fault. Through 0.8.x it was, because the
+plugin declared `userConfig` and an install with no `pluginConfigs` entry
+therefore meant the enable dialog never ran. Removing `userConfig` made that
+inference false. (Historical record:
 [BUG-REPORT-userconfig-dialog-never-shown.md](../BUG-REPORT-userconfig-dialog-never-shown.md).)
-
-### Step 1 — try to get the dialog to run (preferred)
-
-The dialog is worth another attempt first: it is the only path that keeps the
-Client Secret in OS secure storage with no file on disk.
-
-- **Claude Code CLI** — the most reliable way to force the prompt:
-  ```bash
-  /plugin uninstall prisma-sase-mac@prisma-sase    # match your OS variant
-  /plugin install prisma-sase-mac@prisma-sase      # should prompt for the four values
-  ```
-- **Claude Desktop / Cowork** — Settings → Plugins → disable the plugin, quit
-  **completely** (⌘Q — closing the window is not enough), reopen, then
-  re-enable it. Watch for the form as it enables.
-- **After either**, restart fully and re-run `--selfcheck`. Success looks like
-  `plugin config: ... has client_id, region, tsg_id set via the enable dialog`.
-
-If the dialog appears, you are done — nothing else on this page is needed.
-
-### Step 2 — stopgap while the dialog is unavailable
-
-Use this when step 1 does not produce a form. **Prefer the keychain route** —
-it keeps the secret out of any file:
-
-```bash
-bash plugin/setup-keychain.sh
-```
-
-It stores the secret in your keychain and writes a `~/.prisma-sase.env`
-containing only the three non-secret values plus a `PRISMA_SECRET_CMD` line.
-Then restart the app completely.
-
-Plain env file (simplest, but the secret lands on disk in plaintext):
-
-```bash
-# ~/.prisma-sase.env  -- chmod 600
-PRISMA_CLIENT_ID=apikey@1234567890.iam.panserviceaccount.com
-PRISMA_CLIENT_SECRET=...
-PRISMA_TSG_ID=1234567890
-PRISMA_REGION=sg
-```
-
-Verify with `--selfcheck` (expect `RESULT: READY (live mode)`), then restart.
-
-### How the two coexist — this is not dual configuration
-
-The env file **fills gaps**; it does not run alongside the dialog. Resolution
-order is fixed:
-
-```
-1. environment  (what the host injects -- includes the enable dialog)
-2. env file     (only for values step 1 did not supply)
-3. PRISMA_SECRET_CMD  (only if the secret is still unset)
-```
-
-An empty string from the host counts as *not supplied*, which is exactly why
-the env file rescues this bug. And when the dialog starts working, its values
-**automatically take precedence** — you do not need to undo anything for the
-plugin to start using them again.
-
-### Step 3 — clean up once the dialog works
-
-Do this rather than leaving both in place. A file nobody maintains is a stale
-credential waiting to be found:
-
-1. Delete the three credential lines (`PRISMA_CLIENT_ID`,
-   `PRISMA_CLIENT_SECRET`, `PRISMA_TSG_ID`) and `PRISMA_REGION` from
-   `~/.prisma-sase.env`. **Keep any tuning variables** (`PRISMA_INSIGHTS_MAP`,
-   `PRISMA_FILTER_*`, …) — the dialog does not cover those and the file
-   remains their home.
-2. Using the keychain route? `bash plugin/setup-keychain.sh --remove` deletes
-   the stored secret as well.
-3. If a plaintext secret was ever on disk, **rotate it in SCM** — deleting the
-   file does not undo the exposure.
-4. `--selfcheck` audits leftovers: it flags any `~/.prisma-sase*.env` readable
-   beyond you, and forgotten look-alike copies the plugin never reads.
 
 ## First run against a real tenant
 
@@ -333,83 +256,106 @@ The shipped defaults are **live-verified** (users/users_list,
 tunnels/tunnel_list, alerts/alerts_list — all confirmed against a real tenant),
 so on a comparable tenant things should work out of the box. Two open items:
 
-- **Per-alert severity**: this tenant's `alerts/alerts_list` is an *aggregate*
-  view (counts only). `query_alerts` reports honest summary counts until the
-  per-alert "detail" view is identified — run
+- **Per-alert severity**: some tenants expose `alerts/alerts_list` as an
+  *aggregate* view (counts only). `query_alerts` reports honest summary counts
+  until the per-alert "detail" view is identified — run
   `discover_insights(kind="alerts_detail")` once and adopt the suggestion.
-- **Different tenant/version?** If any Insights tool returns HTTP 400, run
-  full discovery — ask Claude to run `discover_insights`, or from a terminal:
+- **Different tenant/version?** If any Insights tool returns HTTP 400, run full
+  discovery — ask Claude to run `discover_insights`, or from a terminal:
 
-```bash
-~/.prisma-sase-venv/bin/python mcp/server.py --discover
-```
+  ```bash
+  uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-mcp --discover
+  ```
 
-It probes candidates read-only, uses a documented control probe to separate
-auth problems from naming problems, and prints a `suggested_insights_map` to
-adopt as one line in `~/.prisma-sase.env` (tuning variables are not part of
-the enable dialog); then restart the Claude app.
+  It probes candidates read-only, uses a documented control probe to separate
+  auth problems from naming problems, and prints a `suggested_insights_map` to
+  adopt as one line (`PRISMA_INSIGHTS_MAP`) in your Local MCP entry or env
+  file; then restart the Claude app.
 
 ## Try it offline first (no credentials)
 
-Set `PRISMA_MOCK=1` (env or `~/.prisma-sase.env`) and the tools run on sample
-data through the real code path — good for a first look or a customer demo.
+Set `PRISMA_MOCK=1` (in the entry's `env`, or `~/.prisma-sase.env`) and every
+tool runs on sample data through the real code path — good for a first look or
+a customer demo.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Plugin/skill load but the MCP tools never appear | Server failed to start — usually Python < 3.10 (macOS system `python3` = 3.9) | `bash install.sh`, then reinstall the plugin. `run.sh` / `server.py` now print the exact version error |
-| **The plugin's tools don't exist in the conversation at all** | The MCP server failed to start. Since 0.8.1 a fallback server takes over and exposes `prisma_sase_setup_required` — ask Claude to call it and it prints the diagnosis + fix | If not even that appears, read `~/.prisma-sase-launch.log` (below) |
-| Tools still missing right after installing the dependencies | The plugin server is only relaunched on a **full app restart** | macOS: **⌘Q** (closing the window is not enough), then reopen. Windows: quit from the tray/taskbar, not just the window |
-| `~/.prisma-sase-venv` exists but the server uses another interpreter | The venv's symlinked interpreter is dangling — common after a Python upgrade moves the version it was built against (the launch log now says so explicitly) | Recreate it: `rm -rf ~/.prisma-sase-venv && bash install.sh` |
-| `pip install fastmcp` → "No matching distribution found" | Misleading pip message — your Python is too old, the package exists | `python3 --version`; use a ≥ 3.10 interpreter (`install.sh` does this) |
-| "Missing required context / Missing PRISMA_CLIENT_ID…" although `launchctl getenv` shows values | macOS GUI apps launched from Finder/Dock are not guaranteed to inherit `launchctl setenv` (field-verified: on some machines the vars never arrive) | Use the plugin enable dialog (the recommended path, in both Desktop and the CLI), or `~/.prisma-sase.env` if your install has no dialog — `install.sh` creates the template. `--selfcheck` shows which source supplied each value |
-| Insights tool returns HTTP 400 | Resource/view name or filter-payload shape doesn't match this tenant (the client already auto-tries time-filter and empty-filter variants) | Run `discover_insights` (or `--discover`), adopt the `suggested_insights_map` into `~/.prisma-sase.env` |
-| Alerts show only counts, `severity_unavailable: true` | The per-alert severity view (`prisma_sase_external_alerts_current`, tried automatically first) did not return usable rows on your tenant, so the tool fell back to the aggregate view (counts by MU/RN/SC) | `discover_insights(kind="alerts_detail")` probes the candidates; if none work, capture the real view name from the SASE UI (dev tools → Network — step-by-step in the Skill's `references/endpoints.md`, "When discovery finds nothing") and set `PRISMA_INSIGHTS_MAP`; please report working names so they become shipped defaults |
+| Skill loads but no SASE tools exist | You installed the plugin but not the server — they are separate halves since 0.9.0 | Run `prisma-sase-setup`, then restart the app fully |
+| `uvx: command not found` in the host's MCP logs | The app does not give MCP servers a login shell's `PATH` | The generated entry sets `PATH` explicitly; if you wrote the entry by hand, add the directory `which uvx` reports |
+| Tools missing right after fixing anything | MCP servers are only relaunched on a **full app restart** | macOS **⌘Q** (closing the window is not enough), then reopen. Windows: quit from the tray, not just the window |
+| First launch is slow | uvx is fetching this repo plus two dependencies, then caching them | Subsequent launches reuse the cache; only a new commit triggers a rebuild |
+| Behind a corporate proxy, uvx cannot fetch | No proxy in the server's environment | Add `HTTPS_PROXY=http://proxy:port` to the entry's `env` block |
+| "Missing required context / Missing PRISMA_CLIENT_ID…" although `launchctl getenv` shows values | macOS GUI apps launched from Finder/Dock are not guaranteed to inherit `launchctl setenv` (field-verified) | Put the values in the Local MCP entry's `env`, or `~/.prisma-sase.env`. `--selfcheck` shows which source supplied each value |
+| Insights tool returns HTTP 400 | Resource/view name or filter-payload shape doesn't match this tenant (the client already auto-tries time-filter and empty-filter variants) | Run `discover_insights` (or `--discover`), adopt the `suggested_insights_map` |
+| Alerts show only counts, `severity_unavailable: true` | The per-alert severity view (`prisma_sase_external_alerts_current`, tried automatically first) did not return usable rows, so the tool fell back to the aggregate view | `discover_insights(kind="alerts_detail")` probes the candidates; if none work, capture the real view name from the SASE UI (dev tools → Network — step-by-step in the Skill's `references/endpoints.md`, "When discovery finds nothing") and set `PRISMA_INSIGHTS_MAP`; please report working names so they become shipped defaults |
 | Insights 400 with `DATA10003` / "Invalid resource" | The resource/view **name does not exist** on this tenant | Run `discover_insights` for working names; adopt its suggestions |
 | Insights 400 with `GCP10002` / "Unrecognized name: X" | The view **exists** — only field `X` in the payload is wrong | Don't change the view name; fix the property via `PRISMA_FILTER_TIME_PROP` / `_SEVERITY_PROP` / `_STATE_PROP` |
 | Insights 400 with "SELECT list must not be empty" | The query sent an empty SELECT — this can 400 even on an existing view | Discovery probes with `properties:["*"]` (always valid) precisely to avoid this trap; report it if a regular tool hits it |
 | Alerts show severity `unknown` (detail view) | The tenant's severity field name differs from the candidates tried | The response's `field_note` lists the record's real fields — set `PRISMA_FILTER_SEVERITY_PROP` and report the field name |
-| 401 "Token request rejected" showing a literal `${PRISMA_TSG_ID}` | v0.1.0 shipped `${...}` placeholders in `.mcp.json`'s env block; some hosts pass them through verbatim | Upgrade to ≥ 0.2.0 (env block removed). `--selfcheck` detects this exact state |
-| Edited `.mcp.json` in your project folder but nothing changed | After "Upload from file", Desktop runs an **internal copy** (`~/Library/Application Support/Claude…/cowork_plugins/marketplaces/local-desktop-app-uploads/prisma-sase/`), not your folder | With ≥ 0.2.0 you shouldn't need to edit it at all — use `PRISMA_PYTHON` / env file instead. Re-upload the plugin to change packaged files |
-| Need a specific interpreter (custom venv etc.) | `run.sh` picks: `PRISMA_PYTHON` → `~/.prisma-sase-venv` → `python3.13…3.10` → `python3` | Set `PRISMA_PYTHON=/abs/path/to/python` |
+| An answer carries `plugin_update_pending` | The host kept an old server process alive across an update — that answer came from **old code** | Restart fully; don't debug behaviour the newer version may already have fixed |
 | Tool answers include a `_verify` note | Insights resource/view names not yet confirmed for your tenant | Confirm once, then set `PRISMA_INSIGHTS_MAP` (see `skills/prisma-sase-ops/references/endpoints.md`) |
 
-## Windows install
+### Windows
 
-The Python server is fully cross-platform; only the launcher differs. Windows
-gets its **own package variant** — `prisma-sase-windows.plugin` — whose MCP
-config starts the server via `cmd /c mcp\run.cmd` instead of bash (don't
-upload the macOS/Linux variant on Windows; its `bash` command won't exist).
+Nothing platform-specific is left in the plugin: `uvx` is the launcher on every
+OS, so there is no per-OS package variant any more (0.8.x shipped three).
+Install uv with `winget install astral-sh.uv`, run the same
+`prisma-sase-setup` command from PowerShell, and restart Claude from the tray.
 
-1. Install **Python ≥ 3.10** from [python.org](https://www.python.org/downloads/)
-   and tick **"Add python.exe to PATH"** during setup.
-   ⚠️ If typing `python` opens the **Microsoft Store**, that's the Store alias
-   stub, not Python — install the real thing or disable the alias
-   (Settings → Apps → Advanced app settings → App execution aliases).
-2. From the unzipped plugin folder run `install.bat` — it creates
-   `%USERPROFILE%\.prisma-sase-venv`, installs dependencies, writes the
-   `%USERPROFILE%\.prisma-sase.env` credential template, and runs an offline
-   selfcheck.
-3. In Claude Desktop: **Settings → Plugins → Upload from file** → pick
-   **`prisma-sase-windows.plugin`**.
-4. Provide the four values. The uploaded `.plugin` carries the same
-   **enable dialog** as a marketplace install (the bundle ships
-   `userConfig`), so filling that in is the recommended path here too — the
-   secret goes to secure storage (on Windows, where there is no supported
-   keychain, that is `%USERPROFILE%\.claude\.credentials.json`, not
-   `settings.json`). Falling back to
-   `%USERPROFILE%\.prisma-sase.env` (same four variables) or to plain user
-   environment variables (System Properties / `setx`, then restart the app —
-   GUI apps on Windows do inherit them) both still work.
-   (`chmod 600` doesn't apply on Windows; the file sits in your user profile,
-   which NTFS already restricts to you + administrators.)
-5. Verify:
-   `%USERPROFILE%\.prisma-sase-venv\Scripts\python.exe <plugin>\mcp\server.py --selfcheck`
+Credentials go in the same places. `chmod 600` doesn't apply on Windows; the
+env file sits in your user profile, which NTFS already restricts to you plus
+administrators.
 
-`run.cmd` picks the interpreter the same way as `run.sh`: `PRISMA_PYTHON` →
-the `.prisma-sase-venv` venv → `py -3.13…-3.10` → `python`. WSL also works if
-you prefer the Linux flow, but it is not required.
+#### Windows on ARM
+
+There is one extra flag to pass, and it belongs on the **very first** command
+you run — the setup command itself. Use this instead of the one at the top of
+this page:
+
+```powershell
+uvx --managed-python --python cpython-3.12-windows-x86_64 `
+    --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
+```
+
+Everything after that is automatic: the wizard detects ARM64 and carries the
+same two flags into the entry it writes, so the server launches the same way.
+
+Why. `cryptography` arrives as a transitive dependency (`fastmcp` → `mcp` →
+`pyjwt[crypto]`) and its authors publish no `win_arm64` wheel for the current
+version. Under a native interpreter uv therefore builds it from source, which
+needs a Rust toolchain and the MSVC C++ build tools; without them the command
+fails with a `cargo`, `rustc` or linker error that names nothing to do with
+this plugin. `prisma-sase-setup` and the server ship in the same package, so
+the dependency — and the failure — is the same for both. That is why the
+bootstrap command needs the flags too: at that moment the wizard has not run
+yet and cannot fix anything on your behalf.
+
+Running under an **x64** interpreter sidesteps it entirely: Windows on ARM
+emulates x64, the `win_amd64` wheels exist, nothing is compiled. The entry the
+wizard writes reads:
+
+```json
+"args": ["--managed-python", "--python", "cpython-3.12-windows-x86_64",
+         "--from", "git+https://github.com/eric2q/prisma-sase-plugin",
+         "prisma-sase-mcp"]
+```
+
+uv downloads and manages that interpreter itself, so no separate Python install
+is needed — and since uv publishes no ARM64 Windows build at all,
+`--managed-python` can only give you x64 here anyway.
+
+Two things that look like fixes and are not. `winget install Python.Python.3.12
+--architecture x64` does nothing: winget matches on package ID, sees 3.12
+already installed, and stops. And installing x64 Python by any means is not
+sufficient on its own, because uv picks its own interpreter and prefers the
+native one unless told otherwise.
+
+Staying native means supplying the build tools —
+`winget install Rustlang.Rustup Microsoft.VisualStudio.2022.BuildTools` — which
+works, but is a much longer road to the same place. None of this applies on
+Intel/AMD Windows.
 
 ## Cloud sessions: getting credentials in
 
@@ -417,8 +363,8 @@ Remote/cloud sessions (Cowork web, remote containers) run in a sandbox that
 **cannot read your laptop's home directory** — `~/.prisma-sase.env` does not
 follow you there, and two intuitive paths fail in confusing ways:
 
-- **Attaching the dotfile to the chat** silently fails: Finder hides
-  dotfiles, so the picker often sends nothing while you believe it was sent.
+- **Attaching the dotfile to the chat** silently fails: Finder hides dotfiles,
+  so the picker often sends nothing while you believe it was sent.
 - **Authorizing your home directory root** is typically not allowed.
 
 The supported path — stage a **non-dotfile copy** into a folder you can
@@ -429,8 +375,7 @@ authorize/attach, then point the server at it:
 cp ~/.prisma-sase.env ~/Documents/<your-project>/prisma-sase.env
 ```
 
-In the cloud session, set `PRISMA_ENV_FILE` to wherever the staged copy
-landed (the env-file loader honors it):
+In the cloud session, set `PRISMA_ENV_FILE` to wherever the staged copy landed:
 
 ```bash
 PRISMA_ENV_FILE=/path/to/prisma-sase.env
@@ -438,43 +383,48 @@ PRISMA_ENV_FILE=/path/to/prisma-sase.env
 
 ⚠️ **Storage principles (apply everywhere, not just cloud):**
 
-- Credentials live in exactly one of the **supported homes** — the OS secure
-  storage (plugin enable dialog / `PRISMA_SECRET_CMD` backends) or the local
-  env file (`~/.prisma-sase.env`, `chmod 600`) — and **nowhere else**.
-- **Never** commit them to a git repo, keep copies in project folders beyond
-  a session, sync them to shared drives/cloud storage, or paste the Client
-  Secret into any conversation — a secret in chat is a secret in the
-  transcript. (The enable dialog is the host's settings UI, not the
-  conversation — filling it in is fine.)
+- Credentials live in exactly one of the **supported homes** — OS keychain via
+  `PRISMA_SECRET_CMD`, the Local MCP entry, or the env file (`chmod 600`) —
+  and **nowhere else**.
+- **Never** commit them to a git repo, keep copies in project folders beyond a
+  session, sync them to shared drives/cloud storage, or paste the Client Secret
+  into any conversation — a secret in chat is a secret in the transcript.
+  (Settings UI and a terminal prompt are not the conversation; filling those in
+  is fine.)
 - The cloud-staged copy above is a **temporary working copy**, not a second
   home — delete it as soon as the session's work is done.
 - If a secret is ever exposed, **rotate it in SCM** (IAM → service account →
-  regenerate) and update the local env file; deleting the leaked copy does
+  regenerate) and update wherever it is stored; deleting the leaked copy does
   not un-leak it.
 
 Deliberately, credentials do **not** auto-sync to the cloud; staging is a
-manual, visible act. No credentials at hand? `PRISMA_MOCK=1` runs every
-tool offline with realistic sample data.
-
-If the plugin's tools don't appear in a cloud session at all, see the
-Skill's **bootstrap runbook** (SKILL.md) and the launch breadcrumb at
-`~/.prisma-sase-launch.log`.
+manual, visible act. No credentials at hand? `PRISMA_MOCK=1` runs every tool
+offline with realistic sample data.
 
 ## Uninstalling
 
-`claude plugin uninstall` (or the Desktop Plugins UI) removes the plugin tree,
-its registry entries, `enabledPlugins`, and the `pluginConfigs` values —
-**including the Client Secret held in OS secure storage**. It does *not* know
-about the things `install.sh` created in your home directory:
+Because the two halves install separately, they uninstall separately.
 
-| Left behind by the host uninstaller | Size |
+**The Skill:**
+
+```bash
+claude plugin uninstall prisma-sase@prisma-sase
+claude plugin marketplace remove prisma-sase
+```
+
+**The server** — delete the `prisma-sase` entry from **Settings → Extensions →
+Local MCP servers** (or from `claude_desktop_config.json`), then clear what is
+left in your home directory. Neither the host nor uvx knows about these:
+
+| Left behind | Size |
 |---|---|
-| `~/.prisma-sase-venv` | ~100 MB |
+| `~/.cache/uv/` entries for this repo | tens of MB (shared with other uvx tools — `uv cache clean` if you want it all gone) |
+| `~/.prisma-sase-venv` (only if you used the pre-0.9.0 venv install) | ~100 MB |
 | `~/.prisma-sase.env` (and any hand-made copies) | credentials |
 | `~/.prisma-sase-launch.log` | tiny |
+| the keychain entry, if you used `PRISMA_SECRET_CMD` | — |
 
-Clean those up with the bundled script — it lists everything first and asks
-before deleting:
+The bundled script lists everything first and asks before deleting:
 
 ```bash
 bash uninstall.sh              # show the plan, then confirm
@@ -482,30 +432,28 @@ bash uninstall.sh --dry-run    # just show
 bash uninstall.sh --yes --keep-credentials
 ```
 
-Then remove the plugin and marketplace themselves:
+(It ships in `src/prisma_sase_mcp/`; `bash setup-keychain.sh --remove` deletes
+the stored secret.)
 
-```bash
-claude plugin uninstall prisma-sase-mac@prisma-sase   # match your OS variant
-claude plugin marketplace remove prisma-sase
-```
-
-If a credential file ever sat on disk in plaintext (especially with
-permissions looser than 600), **rotate the secret in SCM** — deleting the file
+If a credential file ever sat on disk in plaintext — especially with
+permissions looser than 600 — **rotate the secret in SCM**. Deleting the file
 does not undo the exposure. `--selfcheck` warns about both loose permissions
-and stray `~/.prisma-sase*.env` copies the plugin never reads.
+and stray `~/.prisma-sase*.env` copies the server never reads.
 
 ## All environment variables
 
+Set these in the Local MCP entry's `env` block, or in `~/.prisma-sase.env`.
+
 | Variable | Required | Purpose |
 |---|---|---|
-| `PRISMA_CLIENT_ID` / `PRISMA_CLIENT_SECRET` | ✅ | service account credentials — normally supplied by the enable dialog (secret → OS secure storage); set by hand only where there is no dialog, and never commit |
-| `PRISMA_TSG_ID` | ✅ | default Tenant Service Group id |
+| `PRISMA_CLIENT_ID` / `PRISMA_CLIENT_SECRET` | ✅ | service account credentials — prefer `PRISMA_SECRET_CMD` for the secret, and never commit either |
+| `PRISMA_TSG_ID` | ✅ | default Tenant Service Group id (the digits after `@` in the Client ID) |
 | `PRISMA_REGION` | ✅ | `X-PANW-Region` header value (e.g. `sg`, `us`, `de`) |
 | `PRISMA_SUBTENANT_ID` | — | adds `Prisma-SubTenant` header |
 | `PRISMA_MOCK` | — | `1` = offline mock mode |
-| `PRISMA_PYTHON` | — | absolute path of the interpreter `run.sh` should use |
 | `PRISMA_ENV_FILE` | — | custom env-file path (default `~/.prisma-sase.env`) |
 | `PRISMA_SECRET_CMD` | — | command whose stdout supplies the Client Secret (keychain / secret-tool / pass / `op read`); used only when `PRISMA_CLIENT_SECRET` is otherwise unset |
+| `PRISMA_PYTHON` | — | absolute path of the interpreter for the legacy `run.sh` launcher (uvx ignores it) |
 | `PRISMA_INSIGHTS_MAP` | — | JSON override of Insights resource/view names once confirmed |
 | `PRISMA_FILTER_TIME_PROP` / `_SEVERITY_PROP` / `_STATE_PROP` | — | override Insights filter property names |
 | `PRISMA_ADEM_ENDPOINT_TYPE` | — | ADEM `endpoint-type` (default `muAgent`) |
@@ -513,31 +461,32 @@ and stray `~/.prisma-sase*.env` copies the plugin never reads.
 
 ## Security
 
-- Service account is **read-only** and bound only to the needed TSG(s); the
-  plugin has no write capability, so there is no config-drift risk.
-- `client_secret` lives in your environment or a `chmod 600` env file — never in
-  the package, `.mcp.json`, logs, or tool responses.
+- The service account is **read-only** and bound only to the needed TSG(s); the
+  server has no write capability, so there is no config-drift risk.
+- The Client Secret lives in your keychain, the host's config, or a `chmod 600`
+  env file — never in this package, never in logs, never in tool responses.
 - Each tool call is audit-logged (time, tool, parameter summary) to stderr; the
   token and response bodies are **not** logged.
-- Query results can include user names — confirm your data-handling policy before
-  demoing against a customer tenant.
+- Query results can include user names — confirm your data-handling policy
+  before demoing against a customer tenant.
+- `uvx` runs code fetched from GitHub at launch. That is what makes updates
+  automatic, and it means the repo is a supply-chain dependency: install from a
+  source you trust, or pin a ref (`…@v0.9.0`) if you need a frozen target.
 
 ## What's inside / Roadmap
 
 ```
-prisma-sase-plugin/
-├── .claude-plugin/plugin.json   # plugin metadata
-├── .mcp.json                    # MCP mount: bash mcp/run.sh (no env block, no secrets)
-├── install.sh / install.bat     # one-shot venv + deps + selfcheck (macOS/Linux | Windows)
-├── mcp/                         # FastMCP server (Python, read-only)
-│   ├── run.sh / run.cmd         # launcher: picks a Python >= 3.10 (per platform)
-│   ├── server.py  auth.py  client.py  config.py  mock_data.py
-│   ├── tools/                   # status / alerts / users / adem
-│   └── requirements.txt
-└── skills/prisma-sase-ops/      # decision tree, thresholds, runbooks, weekly report
+plugin/                            # <- this package: the Skill, and nothing else
+├── .claude-plugin/plugin.json     # manifest: no mcpServers, no userConfig, by design
+├── README.md                      # this page
+├── CHANGELOG.md                   # version history: FIX / NEW / CHG per release
+└── skills/prisma-sase-ops/        # decision tree, thresholds, runbooks, weekly report
+    └── references/                # endpoints.md, api-catalog.md
+
+src/prisma_sase_mcp/               # <- the other half: what uvx builds and runs
 ```
 
-- **Phase 1 (this)** — 4 read-only tools over stdio + the ops Skill.
+- **Phase 1 (this)** — 6 read-only tools over stdio + the ops Skill.
 - **Phase 2** — SD-WAN tools, config-snapshot audit, richer multi-tenant.
 - **Phase 3** — weekly-report automation, streamable-HTTP deployment, optional
   Prisma AIRS MCP security demo.

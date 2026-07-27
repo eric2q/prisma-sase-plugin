@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Build standalone .plugin files (file-upload installs) from the marketplace tree.
+"""Build the standalone .plugin file (file-upload install) from plugin/.
 
-The marketplace flow needs neither .mcp.json nor plugin.json inside plugin/
-(the catalog entries own them). Machines without git access still need the
-classic zip packages, so this script generates the per-OS manifests on the fly
--- reading name/version/description from .claude-plugin/marketplace.json so the
-two distribution paths can never drift -- and zips plugin/ into dist/.
+Since 0.9.0 the plugin ships the Skill and nothing else -- the MCP server is
+installed separately via uvx, so there is no launcher to vary and no per-OS
+build. What used to be three zips differing only in their `mcpServers` block
+is now one zip that runs anywhere.
+
+The zip is for hosts that cannot reach the GitHub marketplace. Everyone else
+should add the marketplace, because the plugin cache is version-pinned and a
+zip install goes stale the moment you build it.
 
 Usage:  python3 tools/build-standalone.py
 """
@@ -17,12 +20,10 @@ import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLUGIN_DIR = os.path.join(ROOT, "plugin")
+MCP_DIR = os.path.join(ROOT, "src", "prisma_sase_mcp")
 DIST = os.path.join(ROOT, "dist")
 
-# Since v0.8.0 the launcher config (incl. the userConfig env substitutions)
-# is taken verbatim from each marketplace entry -- one source of truth, the
-# two install paths cannot drift.
-PLUGIN_NAMES = ("prisma-sase-mac", "prisma-sase-linux", "prisma-sase-windows")
+PLUGIN_NAME = "prisma-sase"
 
 EXCLUDE_DIRS = {"__pycache__", ".git"}
 EXCLUDE_SUFFIX = (".pyc", ".DS_Store")
@@ -39,33 +40,36 @@ def tree_files():
 
 
 def _check_version_sync(market):
-    """Fail if the version drifts between its three declaration points.
+    """Fail if the version drifts between its four declaration points.
 
-    Since 0.8.7 the plugin entries carry no version of their own: Claude Code
+    Since 0.8.7 the plugin entry carries no version of its own: Claude Code
     always prefers plugin.json's value, so an entry version can only go stale
-    unnoticed. The three that must agree are plugin.json (what the host reads),
-    config.PLUGIN_VERSION (what the server reports), and marketplace metadata.
+    unnoticed. The four that must agree are plugin.json (what the host reads),
+    config.PLUGIN_VERSION (what the server reports), marketplace metadata, and
+    -- since 0.9.0 -- pyproject.toml, which is what uvx actually builds.
     """
-    cfg = os.path.join(PLUGIN_DIR, "mcp", "config.py")
-    with open(cfg, encoding="utf-8") as fh:
+    with open(os.path.join(MCP_DIR, "config.py"), encoding="utf-8") as fh:
         m = re.search(r'^PLUGIN_VERSION\s*=\s*"([^"]+)"', fh.read(), re.M)
     code_ver = m.group(1) if m else None
 
     manifest_path = os.path.join(PLUGIN_DIR, ".claude-plugin", "plugin.json")
     if not os.path.exists(manifest_path):
-        sys.exit("ERROR: %s is missing. Without it a sideloaded session "
-                 "(--plugin-dir) sees no userConfig and the credential "
-                 "placeholders never bind (see CHANGELOG 0.8.7)."
+        sys.exit("ERROR: %s is missing -- without it the Skill has no manifest "
+                 "and neither install path can load it."
                  % os.path.relpath(manifest_path, ROOT))
     with open(manifest_path, encoding="utf-8") as fh:
         manifest_ver = json.load(fh).get("version")
 
+    with open(os.path.join(ROOT, "pyproject.toml"), encoding="utf-8") as fh:
+        m = re.search(r'^version\s*=\s*"([^"]+)"', fh.read(), re.M)
+    proj_ver = m.group(1) if m else None
+
     meta_ver = market.get("metadata", {}).get("version")
-    if len({code_ver, manifest_ver, meta_ver}) != 1:
+    if len({code_ver, manifest_ver, meta_ver, proj_ver}) != 1:
         sys.exit("ERROR: version mismatch -- config.PLUGIN_VERSION=%s, "
-                 "plugin.json=%s, marketplace metadata=%s. Bump them in "
-                 "lockstep (see PUBLISHING.md)."
-                 % (code_ver, manifest_ver, meta_ver))
+                 "plugin.json=%s, marketplace metadata=%s, pyproject=%s. Bump "
+                 "them in lockstep (see PUBLISHING.md)."
+                 % (code_ver, manifest_ver, meta_ver, proj_ver))
 
     stale = sorted(p["name"] for p in market["plugins"] if "version" in p)
     if stale:
@@ -74,50 +78,21 @@ def _check_version_sync(market):
                  "remove it (see PUBLISHING.md)." % ", ".join(stale))
 
 
-# Fields that legitimately differ between the three catalog entries. name/
-# description/keywords are per-OS presentation; mcpServers carries the per-OS
-# launcher (with the extra invariant that mac and linux share the bash one).
-_ENTRY_DIFF_ALLOWED = {"name", "description", "keywords", "mcpServers"}
+def _check_no_server_declared(market, manifest):
+    """Fail if anything reintroduces an MCP server into the plugin.
 
-
-def _check_entry_sync(market):
-    """Fail if the three catalog entries drift outside the allowed fields.
-
-    The three entries are ONE plugin presented per-OS: everything except the
-    allowed presentation/launcher fields must be byte-identical. Since 0.8.7
-    mac and linux carry no mcpServers at all -- they inherit the bash launcher
-    from plugin.json, so there is nothing left to drift between them. Only
-    Windows overrides it. This turns the 'keep the entries in lockstep' rule
-    from human discipline into a build failure.
+    0.9.0 split the two halves apart: the plugin is a Skill, the server is a
+    Local MCP entry that uvx keeps current. A `mcpServers` block here would
+    quietly launch a *second*, version-pinned copy of the server alongside the
+    uvx one -- two servers claiming the same tool names, one of them stale.
     """
-    entries = {p["name"]: p for p in market["plugins"]}
-    expected = {"prisma-sase-mac", "prisma-sase-linux", "prisma-sase-windows"}
-    if set(entries) != expected:
-        sys.exit("ERROR: marketplace entries %s != expected %s"
-                 % (sorted(entries), sorted(expected)))
-
-    def core(entry):
-        return {k: v for k, v in entry.items() if k not in _ENTRY_DIFF_ALLOWED}
-
-    ref_name = "prisma-sase-mac"
-    for name in ("prisma-sase-linux", "prisma-sase-windows"):
-        if core(entries[name]) != core(entries[ref_name]):
-            diff_keys = sorted(
-                k for k in set(core(entries[name])) | set(core(entries[ref_name]))
-                if core(entries[name]).get(k) != core(entries[ref_name]).get(k))
-            sys.exit("ERROR: catalog entry '%s' drifted from '%s' on field(s) "
-                     "%s -- entries must stay in lockstep outside %s "
-                     "(see PUBLISHING.md)."
-                     % (name, ref_name, diff_keys, sorted(_ENTRY_DIFF_ALLOWED)))
-    for name in ("prisma-sase-mac", "prisma-sase-linux"):
-        if "mcpServers" in entries[name]:
-            sys.exit("ERROR: '%s' overrides mcpServers. Only Windows needs a "
-                     "launcher override; mac and linux must inherit the bash "
-                     "one from plugin.json so both load paths agree." % name)
-    if "mcpServers" not in entries["prisma-sase-windows"]:
-        sys.exit("ERROR: prisma-sase-windows must override mcpServers -- bash "
-                 "does not exist there, so inheriting the manifest launcher "
-                 "would leave Windows users with a server that cannot start.")
+    for where, obj in (("plugin.json", manifest),) + tuple(
+            ("marketplace entry '%s'" % p["name"], p) for p in market["plugins"]):
+        for key in ("mcpServers", "userConfig"):
+            if key in obj:
+                sys.exit("ERROR: %s declares %s. Since 0.9.0 the plugin ships "
+                         "the Skill only -- the server installs via uvx as a "
+                         "Local MCP entry. Remove it." % (where, key))
 
 
 def main():
@@ -125,40 +100,19 @@ def main():
               encoding="utf-8") as fh:
         market = json.load(fh)
     _check_version_sync(market)
-    _check_entry_sync(market)
-    entries = {p["name"]: p for p in market["plugins"]}
 
     with open(os.path.join(PLUGIN_DIR, ".claude-plugin", "plugin.json"),
               encoding="utf-8") as fh:
-        base_manifest = json.load(fh)
+        manifest = json.load(fh)
+    _check_no_server_declared(market, manifest)
 
     os.makedirs(DIST, exist_ok=True)
-    for name in PLUGIN_NAMES:
-        entry = entries[name]
-        # Start from the real manifest so the bundle carries the same
-        # userConfig (and therefore the same credential binding) as both the
-        # marketplace and --plugin-dir paths; overlay only per-OS presentation
-        # and, for Windows, the launcher.
-        manifest = dict(base_manifest)
-        manifest["name"] = name
-        manifest["description"] = entry.get("description",
-                                            base_manifest.get("description", ""))
-        manifest["keywords"] = entry.get("keywords",
-                                         base_manifest.get("keywords", []))
-        mcp_cfg = {"mcpServers": entry.get("mcpServers",
-                                           base_manifest["mcpServers"])}
-        manifest["mcpServers"] = mcp_cfg["mcpServers"]
-        out = os.path.join(DIST, "%s.plugin" % name)
-        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-            for full, rel in tree_files():
-                if rel.replace(os.sep, "/") == ".claude-plugin/plugin.json":
-                    continue          # replaced by the per-OS manifest below
-                zf.write(full, rel)
-            zf.writestr(".claude-plugin/plugin.json",
-                        json.dumps(manifest, indent=2, ensure_ascii=False))
-            zf.writestr(".mcp.json",
-                        json.dumps(mcp_cfg, indent=2))
-        print("built %s (v%s)" % (out, manifest["version"]))
+    out = os.path.join(DIST, "%s.plugin" % PLUGIN_NAME)
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        for full, rel in tree_files():
+            zf.write(full, rel)
+    print("built %s (v%s)" % (out, manifest["version"]))
+    print("note: a zip install cannot update itself. Prefer the marketplace.")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-# Prisma SASE Plugin Marketplace
+# Prisma SASE for Claude
 
 **English** | [繁體中文](README.zh-TW.md)
 
@@ -7,6 +7,12 @@ Claude Code: a Python MCP server (6 query tools) plus the `prisma-sase-ops`
 Skill (decision tree, thresholds, runbooks, weekly-report template).
 Ask Claude things like *"how is SASE doing right now — any P1 alerts?"* or
 *"list tunnel status — which are down?"* against your own tenant.
+
+One command sets it up:
+
+```bash
+uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
+```
 
 > **Read-only by design** — no write / commit / config-push path exists anywhere.
 
@@ -27,15 +33,21 @@ Palo Alto Networks, Inc.*
 
 ## What's in the box
 
-This repo is a **plugin marketplace**: one code tree (`plugin/`), three OS-specific
-catalog entries that differ only in how the server is launched. Install the one for
-your OS:
+Two halves, installed separately on purpose:
 
-| Your OS | Install this plugin | Launcher |
-|---|---|---|
-| macOS | **`prisma-sase-mac`** | `bash mcp/run.sh` |
-| Linux | **`prisma-sase-linux`** | `bash mcp/run.sh` |
-| Windows | **`prisma-sase-windows`** | `cmd /c mcp\run.cmd` |
+| Half | What it is | How it installs | How it updates |
+|---|---|---|---|
+| **MCP server** | 6 read-only query tools | a **Local MCP server** entry that runs `uvx` | **by itself** — uvx re-resolves this repo on every app launch |
+| **`prisma-sase-ops` Skill** | decision tree, thresholds, runbooks, weekly-report template | the plugin marketplace | `/plugin marketplace update prisma-sase` |
+
+They were one plugin until 0.9.0. The split exists because the plugin cache is
+version-pinned: a plugin-mounted server only changes when the user explicitly
+updates, whereas the uvx entry fetches the current `main` each time the app
+starts. The server is the half that talks to a live API and needs to stay
+current; the Skill is prose and can lag a release without hurting anyone.
+
+The server works on its own — the Skill only makes Claude better at choosing
+between the tools and reading what they return.
 
 Curious how the 6 tools map onto PANW's full API surface (and what a read-only
 Phase 2 could add)? See the
@@ -43,73 +55,84 @@ Phase 2 could add)? See the
 
 ## Prerequisites
 
-Everything the plugin needs before installing. **Not sure? Just run the install
-script (step 1 below)** — it checks all of this and, for anything missing,
-prints the exact command to fix it, per OS. It is always safe to re-run.
-
 | You need | How to check | If it's missing |
 |---|---|---|
-| **Python ≥ 3.10** | `python3 --version` (Windows: `py --version` or `python --version`) | macOS: `brew install python@3.12`, or the [python.org](https://www.python.org/downloads/) installer. Debian/Ubuntu: `sudo apt install python3 python3-venv python3-pip`. Fedora/RHEL: `sudo dnf install python3`. Windows: [python.org](https://www.python.org/downloads/) installer — tick **"Add python.exe to PATH"** |
-| **venv + pip** (usually bundled with Python) | `python3 -m venv --help` | Debian/Ubuntu ship them separately: `sudo apt install python3-venv python3-pip`. Elsewhere they come with Python |
-| **Network to PyPI** (one-time) | — | Needed once so the install script can fetch `fastmcp` + `httpx`. Behind a corporate proxy: set `HTTPS_PROXY=http://proxy:port` first, then run the script |
-| **git** (marketplace install only) | `git --version` | macOS: `xcode-select --install`. Linux: `sudo apt install git` / `sudo dnf install git`. Windows: [git-scm.com](https://git-scm.com/). No git at all? Use the standalone `.plugin` file instead (see [Repo layout](#repo-layout)) |
+| **uv** (provides `uvx`) | `uvx --version` | `curl -LsSf https://astral.sh/uv/install.sh \| sh` (macOS/Linux) or `brew install uv`. Windows: `winget install astral-sh.uv`. Full options: [docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/) |
+| **Network to GitHub + PyPI** | — | uvx fetches this repo and its two dependencies on first launch, then caches them. Behind a corporate proxy: set `HTTPS_PROXY=http://proxy:port` |
+| **A read-only SCM service account** | — | [Getting the API key](#getting-the-api-key-read-only-service-account), below |
 
-⚠️ Two known traps the script also detects and explains:
-- **macOS**: the built-in `/usr/bin/python3` is often **3.9** — too old. Install
-  a newer one; the script finds it automatically.
-- **Windows**: if typing `python` opens the **Microsoft Store**, that's an alias
-  stub, not Python. Install the real one from python.org (tick "Add to PATH"),
-  or disable the alias (Settings → Apps → Advanced app settings → App execution
-  aliases).
+You do **not** need to install Python yourself. uv downloads a suitable
+interpreter if your system's is too old — which on macOS it usually is, since
+the built-in `/usr/bin/python3` is often 3.9 and `fastmcp` needs 3.10.
 
 No Prisma tenant yet? Everything can still be tried offline: set `PRISMA_MOCK=1`
 and the tools answer with realistic sample data — no credentials, no network.
 
 ## Install
 
-**1. One-time machine setup** (Python ≥ 3.10 + venv + dependencies + credential
-template). Clone or download this repo anywhere temporary and run:
+**1. Create the API key** — the four-step SCM walkthrough is
+[below](#getting-the-api-key-read-only-service-account). Have the Client ID and
+Client Secret in front of you before the next step.
+
+**2. Run the guided setup.** It asks for the four values with an explanation of
+each, puts the Client Secret in your OS keychain, and writes the Local MCP
+servers entry for you:
 
 ```bash
-# macOS / Linux
-bash plugin/install.sh
-```
-```bat
-:: Windows (Python from python.org first — tick "Add python.exe to PATH")
-plugin\install.bat
+uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
 ```
 
-**2. Add the marketplace + install the plugin.**
+> **On ARM64 Windows, add two flags** — `uvx --managed-python --python
+> cpython-3.12-windows-x86_64 --from … prisma-sase-setup`. A transitive
+> dependency publishes no `win_arm64` wheel, so a native interpreter tries to
+> compile it and fails on a missing Rust toolchain. The wizard carries the
+> flags into the entry it writes, so this is the only command you type them
+> into. Detail: [Windows on ARM](plugin/README.md#windows-on-arm).
+
+It shows you the entry and asks before writing anything; `--print` shows the
+JSON and writes nothing at all, if you would rather paste it into
+**Settings → Extensions → Local MCP servers** by hand. The entry it produces:
+
+```json
+{
+  "command": "/opt/homebrew/bin/uvx",
+  "args": ["--from", "git+https://github.com/eric2q/prisma-sase-plugin",
+           "prisma-sase-mcp"],
+  "env": {
+    "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+    "PRISMA_CLIENT_ID": "apikey@**********.iam.panserviceaccount.com",
+    "PRISMA_TSG_ID": "**********",
+    "PRISMA_REGION": "sg",
+    "PRISMA_SECRET_CMD": "security find-generic-password -s prisma-sase -a client_secret -w"
+  }
+}
+```
+
+Note what is *not* in there: the secret itself. `PRISMA_SECRET_CMD` is run at
+launch to fetch it from the keychain. Panel values are stored in plaintext in
+`claude_desktop_config.json`, which rides along in Time Machine and any backup
+that copies your home directory — so the secret stays out of it.
+
+**3. Restart the Claude app completely** (macOS: ⌘Q — closing the window does
+not relaunch MCP servers). Then ask it about your tenant.
+
+**4. Optional — add the Skill** for the diagnostic runbooks and report template:
 
 *Claude Desktop / Cowork:* **Settings → Plugins → Add marketplace → Add from a
-repository** → enter this repo (`eric2q/prisma-sase-plugin` or the full git URL) → install
-**prisma-sase-mac**, **prisma-sase-linux**, or **prisma-sase-windows** to match your OS.
+repository** → `eric2q/prisma-sase-plugin` → install **prisma-sase**.
 
 *Claude Code (CLI):*
 
 ```
 /plugin marketplace add eric2q/prisma-sase-plugin
-/plugin install prisma-sase-mac@prisma-sase      # macOS
-/plugin install prisma-sase-linux@prisma-sase    # Linux
-/plugin install prisma-sase-windows@prisma-sase  # Windows
+/plugin install prisma-sase@prisma-sase
 ```
 
-**3. Credentials — create the API key** (walkthrough below), then provide the
-four values. **Enabling the plugin prompts for them** — in Claude Desktop and
-in the Claude Code CLI alike (the Client Secret is masked and goes to secure
-storage, not `settings.json`). Use that. The `~/.prisma-sase.env` file
-(Windows: `%USERPROFILE%\.prisma-sase.env`; template created by the install
-script) is the fallback for cloud sessions, CI, and hosts without the dialog
-— and stays the place for the optional tuning variables the dialog doesn't
-cover. Restart the Claude app afterwards. Full details, selfcheck and troubleshooting:
-[`plugin/README.md`](plugin/README.md).
-
-> **Never got asked for the four values?** Some hosts enable a plugin without
-> ever running its configuration dialog — every tool then fails for missing
-> credentials while Settings shows masked dots that *look* configured. Run
-> `mcp/server.py --selfcheck`: it names the cause. Recovery (re-trigger the
-> dialog first; keychain or env-file stopgap if that fails) is in
-> [When the enable dialog never asked for anything](plugin/README.md#when-the-enable-dialog-never-asked-for-anything).
+> **No uv, and cannot install it?** There is a venv fallback that needs only
+> Python ≥ 3.10: clone the repo and run `bash src/prisma_sase_mcp/install.sh`
+> (Windows: `src\prisma_sase_mcp\install.bat`), then point a Local MCP entry at
+> `run.sh`. It works identically but does **not** auto-update — you pull the
+> repo yourself. Details in [`plugin/README.md`](plugin/README.md).
 
 ## Getting the API key (read-only service account)
 
@@ -161,17 +184,18 @@ under the correct TSG scope and bind only the tenants you need.
 
 <img src="plugin/docs/images/scm-4-assign-roles.png" alt="Assign Roles: All Apps & Services + View Only Administrator → Submit" width="640">
 
-**Provide the values from step 3** — two supported paths:
+**Provide the values from step 3** — three supported paths, best first:
 
-- **Plugin enable dialog (recommended):** when you install/enable the plugin,
-  Claude prompts for Client ID, Client Secret, TSG ID, and Region — this
-  works in Claude Desktop and in the Claude Code CLI. The secret is masked
-  on entry and stored in **secure storage** (macOS Keychain, or
-  `~/.claude/.credentials.json` where no keychain is available), not in
-  `settings.json` and not in any file of ours.
+- **`prisma-sase-setup` (recommended):** the guided setup from
+  [Install](#install) step 2. Secret to the OS keychain, the other three onto
+  the Local MCP entry, and a `PRISMA_SECRET_CMD` that fetches the secret at
+  launch. Nothing secret is written to a file.
+- **The Local MCP servers panel, by hand:** the same four as environment
+  variables. Simple, and what most MCP servers do — but `PRISMA_CLIENT_SECRET`
+  then sits in `claude_desktop_config.json` in plaintext. Fine for a lab
+  tenant; think twice for a customer's.
 - **Env file** (`~/.prisma-sase.env`, `KEY=VALUE`, no quotes; masked here
-  with asterisks) — the fallback for cloud sessions, CI, or hosts without
-  the dialog:
+  with asterisks) — for the venv fallback path, cloud sessions and CI:
 
   ```
   PRISMA_CLIENT_ID=apikey@**********.iam.panserviceaccount.com
@@ -182,16 +206,18 @@ under the correct TSG scope and bind only the tenants you need.
 
   The secret line can instead point at a secret store, keeping the file
   non-sensitive: `PRISMA_SECRET_CMD=security find-generic-password -s
-  prisma-sase -w` (also works with `secret-tool`, `pass`, `op read`).
+  prisma-sase -a client_secret -w` (also works with `secret-tool`, `pass`,
+  `op read`).
 
-`PRISMA_TSG_ID` = the digits after `@` in the Client ID; `PRISMA_REGION` =
-your tenant's actual region (e.g. `sg`, `us`, `de`). Then restart the Claude
-app and (optionally) verify with the server's `--selfcheck` — it reports
-which source supplied the secret.
+`PRISMA_TSG_ID` = the digits after `@` in the Client ID (the setup wizard
+detects it for you); `PRISMA_REGION` = your tenant's actual region (e.g. `sg`,
+`us`, `de`). Then restart the Claude app. To check what is stored without
+revealing it: `uvx --from git+https://github.com/eric2q/prisma-sase-plugin
+prisma-sase-setup --show`.
 
 **Storage principle:** credentials live in exactly one of the supported
-homes — the OS secure storage (via the enable dialog / `PRISMA_SECRET_CMD`)
-or the local env file (`chmod 600`) — and nowhere else. Never commit them to
+homes — the OS keychain (via `PRISMA_SECRET_CMD`), the panel entry, or the
+local env file (`chmod 600`) — and nowhere else. Never commit them to
 a repo, never keep copies in project folders, and never paste the secret
 anywhere — for cloud sessions, use a temporary staged copy and delete it
 afterwards (see [`plugin/README.md`](plugin/README.md), "Cloud sessions").
@@ -203,60 +229,84 @@ afterwards (see [`plugin/README.md`](plugin/README.md), "Cloud sessions").
 
 ## If the SASE tools don't appear
 
-Two things to try, in order — both designed for the case where the plugin
-looks installed but no Prisma SASE tools exist in the conversation:
+Three things to try, in order:
 
-1. **Ask Claude to run `prisma_sase_setup_required`.** When the real server
+1. **Run the server by hand** — it prints exactly what it found, and no
+   credential values:
+
+   ```bash
+   uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-mcp --selfcheck
+   ```
+
+   A missing `uvx` on `PATH` is the most common cause: the app does not give
+   MCP servers a login shell's `PATH`, which is why the generated entry sets
+   `PATH` explicitly. If `which uvx` prints somewhere not in that list, add it.
+2. **Ask Claude to run `prisma_sase_setup_required`.** When the real server
    can't start, a dependency-free fallback takes its place and this tool
    returns the diagnosis plus copy-paste fix commands.
-2. **Read `~/.prisma-sase-launch.log`** — the launch breadcrumb naming the
+3. **Read `~/.prisma-sase-launch.log`** — the launch breadcrumb naming the
    interpreter that was chosen and the exact cause of failure (no file at all
    = the host never launched the server). Line-by-line key:
-   [`plugin/README.md`](plugin/README.md#if-the-tools-dont-show-up-two-places-to-look).
+   [`plugin/README.md`](plugin/README.md#if-the-tools-dont-show-up).
 
 After any fix, **restart the Claude app completely** (macOS: ⌘Q — closing the
-window doesn't relaunch plugin servers).
+window doesn't relaunch MCP servers).
 
 ## Update
 
-Maintainer pushes to this repo → users pick it up with
-**Settings → Plugins → (marketplace) Update** in Desktop, or:
+**The server updates itself.** The Local MCP entry runs
+`uvx --from git+…` with no pinned ref, so every app launch re-resolves this
+repo's `main` and rebuilds if the commit changed. Maintainer pushes → you
+restart the app → you are current. Nothing to click. (Confirm what you are
+running by asking for the SASE status — the response carries `plugin_version`.)
+
+**The Skill does not.** Plugins are cached per version and only move when you
+say so:
 
 ```
 /plugin marketplace update prisma-sase
 ```
 
-Claude Code also refreshes marketplaces in the background. Versions are pinned
-by the `version` field in `.claude-plugin/marketplace.json` — users see an
-update when it changes (see [`PUBLISHING.md`](PUBLISHING.md)).
+or **Settings → Plugins → (marketplace) Update** in Desktop. Versions are
+pinned by the `version` field in `.claude-plugin/marketplace.json` — users see
+an update when it changes (see [`PUBLISHING.md`](PUBLISHING.md)).
 
 **What changed in each version** — bug fixes, new features, behavior changes —
 is recorded per release in [`plugin/CHANGELOG.md`](plugin/CHANGELOG.md)
 (entries are tagged `FIX` / `NEW` / `CHG`).
 
+**Pinning, if you need a stable target.** Add a git ref to the `--from` URL and
+the auto-update stops there: `git+https://github.com/eric2q/prisma-sase-plugin@v0.9.0`.
+Useful for a customer demo you do not want moving under you.
+
 ## Notes on hosting
 
-This repository is **public** — anyone can add the marketplace and install
-without GitHub authentication, and background auto-updates just work.
+This repository is **public** — `uvx` clones it anonymously, anyone can add the
+marketplace without GitHub authentication, and both update paths just work.
 
-If you fork and host this as a **private** repo instead: manual add/update
-uses your normal git credentials (`gh auth setup-git`, SSH agent), but
-background auto-update of private repos over HTTPS is limited by design —
-run `gh auth setup-git` on each machine and set
-`CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1` so a failed background
-pull keeps the working copy. SSH remotes with a loaded `ssh-agent` key
-auto-update fine.
+If you fork and host this as a **private** repo instead: `uvx` uses your git
+credential helper, so `gh auth setup-git` (or an SSH remote with a loaded
+`ssh-agent` key, via `git+ssh://git@github.com/...`) is enough for the server.
+For the Skill, manual marketplace add/update uses the same credentials, but
+background auto-update of private repos over HTTPS is limited by design — set
+`CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1` so a failed background pull
+keeps the working copy.
 
 ## Repo layout
 
 ```
-.claude-plugin/marketplace.json   # catalog: 3 OS-specific entries, shared source, per-OS launcher
-plugin/                           # the single code tree (server + skills + installers)
+src/prisma_sase_mcp/              # the MCP server -- what uvx builds and runs
+src/prisma_sase_mcp/setup_wizard.py   # the `prisma-sase-setup` guided installer
+src/prisma_sase_mcp/install.sh    # venv fallback for hosts without uv
+pyproject.toml                    # entry points: prisma-sase-mcp, prisma-sase-setup
+plugin/                           # the Skill, and nothing else
 plugin/CHANGELOG.md               # version history: bug fixes & new features per release
-tools/build-standalone.py         # optional: build offline .plugin files (file-upload installs)
+.claude-plugin/marketplace.json   # catalog: one entry, the Skill
+tools/build-standalone.py         # optional: build an offline .plugin (file-upload install)
 PUBLISHING.md                     # maintainer release workflow
 README.zh-TW.md                   # this page in Traditional Chinese
 ```
 
-Standalone `.plugin` files (for machines without git access) can still be built
-any time: `python3 tools/build-standalone.py` → `dist/`.
+A standalone `.plugin` file (for machines that cannot reach the marketplace)
+can still be built any time: `python3 tools/build-standalone.py` → `dist/`. It
+carries the Skill only, and cannot update itself.

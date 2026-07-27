@@ -88,8 +88,9 @@ resource/view and payload shape your tenant version uses:
 4. From the request: copy the **resource/view names** (URL) and note the
    **filter/properties payload** (Request body) — the time property name and
    any severity/state property names.
-5. Adopt them without touching code — one line in `~/.prisma-sase.env` (the
-   enable dialog holds credentials only; tuning variables live in the file):
+5. Adopt them without touching code — one line, as an `env` key in the
+   **Local MCP servers** entry named `prisma-sase`, or in `~/.prisma-sase.env`.
+   It is a tuning variable, not a credential, so it needs no secure storage:
    ```
    PRISMA_INSIGHTS_MAP={"alerts_detail":{"resource":"<from URL>","view":"<from URL or empty>","verified":true}}
    ```

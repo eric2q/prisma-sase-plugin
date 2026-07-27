@@ -10,6 +10,8 @@ with an explanation rather than a bare assertion.
 Scope: pure logic + the shell scripts' file handling. No live API calls (the
 tool layer runs under PRISMA_MOCK=1), no credentials required.
 """
+import contextlib
+import json
 import os
 import re
 import shutil
@@ -19,8 +21,13 @@ import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MCP = os.path.join(ROOT, "plugin", "mcp")
-UNINSTALL_SH = os.path.join(ROOT, "plugin", "uninstall.sh")
+# 0.9.0 moved the server out of plugin/mcp so uvx can package it. The modules
+# still import each other by bare name, so this stays a sys.path entry rather
+# than becoming a package import.
+MCP = os.path.join(ROOT, "src", "prisma_sase_mcp")
+# The shell helpers moved with the server: plugin/ now holds nothing but the
+# Skill, and these scripts operate on the server's venv, not on the Skill.
+UNINSTALL_SH = os.path.join(MCP, "uninstall.sh")
 
 sys.path.insert(0, MCP)
 os.environ["PRISMA_MOCK"] = "1"
@@ -392,14 +399,21 @@ class VersionLockstep(unittest.TestCase):
                 "this one can only drift out of sight" % entry["name"])
 
 
-class UserConfigBinding(unittest.TestCase):
-    """Every ${user_config.KEY} must resolve against a declared userConfig key.
+class PluginShipsTheSkillOnly(unittest.TestCase):
+    """The plugin must not declare an MCP server. 0.9.0 split them apart.
 
-    0.8.0-0.8.6 declared userConfig in marketplace.json only. A sideloaded
-    session (`claude --plugin-dir ./plugin`) reads plugin.json and never sees
-    marketplace.json, so all four placeholders stayed literal and the server
-    started with no credentials at all. The declaration now lives in the
-    manifest; these tests keep it there.
+    Through 0.8.8 the plugin carried both the Skill and the MCP server, with
+    credentials arriving via ${user_config.*}. That path never worked
+    reliably: 0.8.6 forgot to declare userConfig in the manifest, so sideloads
+    got literal placeholders; 0.8.8 documented a host that enables the plugin
+    without ever showing the dialog, so the same vars arrived empty. Both
+    failures were silent and neither was ours to fix.
+
+    0.9.0 stops fighting it. The MCP server installs as a Local MCP server
+    (uvx, credentials as ordinary env vars); the plugin ships the Skill alone.
+    If a manifest ever declares mcpServers again, the host would launch a
+    second copy of the server alongside the panel's -- duplicate tools, and
+    the broken credential path back with them.
     """
 
     PLACEHOLDER = re.compile(r"\$\{user_config\.([A-Za-z0-9_]+)\}")
@@ -416,49 +430,981 @@ class UserConfigBinding(unittest.TestCase):
         with open(path, encoding="utf-8") as fh:
             return json.load(fh)
 
-    def _placeholders_in(self, blob):
-        import json
-        return set(self.PLACEHOLDER.findall(json.dumps(blob)))
+    def test_manifest_declares_no_mcp_server(self):
+        self.assertNotIn(
+            "mcpServers", self._manifest(),
+            "the plugin ships the Skill only; declaring mcpServers here would "
+            "start a second server next to the Local MCP one")
 
-    def test_manifest_declares_user_config(self):
-        """Without this the sideload path has nothing to bind to."""
-        self.assertTrue(
-            self._manifest().get("userConfig"),
-            "plugin.json must declare userConfig -- marketplace.json is not "
-            "read when the plugin is loaded with --plugin-dir")
+    def test_manifest_declares_no_user_config(self):
+        self.assertNotIn(
+            "userConfig", self._manifest(),
+            "userConfig only means anything alongside an mcpServers block; "
+            "leaving it behind would prompt for credentials nothing reads")
 
-    def test_manifest_placeholders_are_declared(self):
-        manifest = self._manifest()
-        declared = set(manifest.get("userConfig", {}))
-        for key in self._placeholders_in(manifest.get("mcpServers", {})):
-            self.assertIn(
-                key, declared,
-                "manifest uses ${user_config.%s} but does not declare it; it "
-                "would reach the server as a literal placeholder" % key)
-
-    def test_marketplace_overrides_bind_to_the_manifest(self):
-        """An entry may override mcpServers, but it inherits the declaration."""
-        declared = set(self._manifest().get("userConfig", {}))
+    def test_no_entry_reintroduces_a_server(self):
         for entry in self._marketplace()["plugins"]:
-            for key in self._placeholders_in(entry.get("mcpServers", {})):
+            self.assertNotIn(
+                "mcpServers", entry,
+                "%s overrides mcpServers -- entries inherit the manifest, and "
+                "the manifest no longer ships a server" % entry["name"])
+
+    def test_no_user_config_placeholders_survive_anywhere(self):
+        import json
+        for label, blob in (("plugin.json", self._manifest()),
+                            ("marketplace.json", self._marketplace())):
+            left = set(self.PLACEHOLDER.findall(json.dumps(blob)))
+            self.assertFalse(
+                left,
+                "%s still references %s; nothing expands those now, so they "
+                "would reach a server as literal text"
+                % (label, ", ".join(sorted(left))))
+
+    def test_the_skill_is_present(self):
+        """It is the plugin's entire payload now."""
+        skill = os.path.join(ROOT, "plugin", "skills", "prisma-sase-ops",
+                             "SKILL.md")
+        self.assertTrue(os.path.isfile(skill),
+                        "the plugin has nothing left to ship without %s" % skill)
+
+
+class UvxPackaging(unittest.TestCase):
+    """The Local MCP path is `uvx --from git+... prisma-sase-mcp`.
+
+    uvx resolves the git ref on every launch, which is what makes "push to
+    main" reach users without an install step. That only holds while the
+    package metadata stays consistent with the code: a stale entry point or a
+    dependency that is declared in one place and not the other fails at the
+    user's launch, not in CI.
+    """
+
+    def _pyproject(self):
+        try:
+            import tomllib
+        except ModuleNotFoundError:                    # Python 3.10
+            self.skipTest("tomllib needs Python >= 3.11")
+        with open(os.path.join(ROOT, "pyproject.toml"), "rb") as fh:
+            return tomllib.load(fh)
+
+    def test_version_matches_config(self):
+        ver = self._pyproject()["project"]["version"]
+        self.assertEqual(
+            ver, config.PLUGIN_VERSION,
+            "pyproject is v%s but config.PLUGIN_VERSION is v%s -- uvx would "
+            "install a build whose own logs disagree with it"
+            % (ver, config.PLUGIN_VERSION))
+
+    def test_entry_points_resolve(self):
+        scripts = self._pyproject()["project"]["scripts"]
+        for name, target in (("prisma-sase-mcp",
+                              "prisma_sase_mcp.__main__:main"),
+                             ("prisma-sase-setup",
+                              "prisma_sase_mcp.__main__:setup")):
+            self.assertEqual(
+                scripts.get(name), target,
+                "%s must point at %s -- the README and the setup wizard both "
+                "emit that exact console script" % (name, target))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "_pkg_main", os.path.join(MCP, "__main__.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        for attr in ("main", "setup"):
+            self.assertTrue(callable(getattr(mod, attr, None)),
+                            "__main__.%s is not callable" % attr)
+
+    def test_dependencies_match_requirements_txt(self):
+        """run.sh installs from requirements.txt; uvx installs from pyproject."""
+        declared = set(self._pyproject()["project"]["dependencies"])
+        req = set()
+        with open(os.path.join(MCP, "requirements.txt"), encoding="utf-8") as fh:
+            for line in fh:
+                line = line.split("#", 1)[0].strip()
+                if line:
+                    req.add(line)
+        self.assertEqual(
+            declared, req,
+            "pyproject and requirements.txt disagree; the two launch paths "
+            "would resolve different versions.\n  pyproject only: %s\n  "
+            "requirements only: %s"
+            % (sorted(declared - req), sorted(req - declared)))
+
+    def test_the_package_is_importable_as_a_package(self):
+        """__init__ must not drag in fastmcp -- setup runs before deps exist."""
+        out = subprocess.run(
+            [sys.executable, "-c",
+             "import sys; sys.path.insert(0, %r); "
+             "import prisma_sase_mcp; "
+             "assert not [m for m in ('fastmcp', 'httpx') if m in sys.modules],"
+             " 'importing the package pulled in a heavy dependency'; "
+             "print(prisma_sase_mcp.__name__)"
+             % os.path.join(ROOT, "src")],
+            capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0,
+                         "importing the package failed:\n%s" % out.stderr)
+
+    def test_tools_are_importable_by_package_path(self):
+        """0.9.0 -- SKILL.md calls this the MCP-free escape hatch.
+
+        The Skill tells the assistant it can always fall back to
+        `from prisma_sase_mcp.tools.status import get_sase_status` when the
+        MCP layer is unavailable, and calls that a design guarantee. But every
+        tool module opens with a flat `import config`, and the sys.path shim
+        that makes those resolve lived in __main__ -- so the documented import
+        raised ModuleNotFoundError unless you had gone through the console
+        script. The one path a broken install is supposed to fall back to was
+        the one path that did not work.
+        """
+        out = subprocess.run(
+            [sys.executable, "-c",
+             "import sys; sys.path.insert(0, %r);\n"
+             "from prisma_sase_mcp.tools.status import get_sase_status\n"
+             "from prisma_sase_mcp.tools.alerts import query_alerts\n"
+             "print(get_sase_status()['ok'])" % os.path.join(ROOT, "src")],
+            capture_output=True, text=True,
+            env=dict(os.environ, PRISMA_MOCK="1"))
+        self.assertEqual(out.returncode, 0,
+                         "the fallback SKILL.md documents does not work:\n%s"
+                         % out.stderr)
+        self.assertIn("True", out.stdout)
+
+
+class SetupWizard(unittest.TestCase):
+    """The guided setup replaces the enable dialog the panel does not have.
+
+    Its whole reason to exist is that panel values are plaintext: it puts the
+    secret in the keychain and emits PRISMA_SECRET_CMD instead. A regression
+    that quietly writes the secret into the panel block would look fine and
+    undo the point.
+    """
+
+    def _wizard(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "_setup_wizard", os.path.join(MCP, "setup_wizard.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_entry_uses_secret_cmd_not_a_plaintext_secret(self):
+        w = self._wizard()
+        entry = w._panel_entry("apikey@123.iam.panserviceaccount.com", "123",
+                               "americas", "printf secret")
+        env = entry["env"]
+        self.assertIn("PRISMA_SECRET_CMD", env)
+        self.assertNotIn(
+            "PRISMA_CLIENT_SECRET", env,
+            "the whole point is that the secret is not in the panel")
+
+    def test_entry_without_a_keychain_is_visibly_a_placeholder(self):
+        """No keychain is a real case; it must not look like a working config."""
+        w = self._wizard()
+        env = w._panel_entry("id", "123", "americas", None)["env"]
+        self.assertIn("<paste", env.get("PRISMA_CLIENT_SECRET", ""),
+                      "a blank value would start a server that fails later "
+                      "with no clue why")
+
+    def test_entry_launches_through_uvx_from_git(self):
+        """Anything else loses the auto-update this architecture exists for."""
+        w = self._wizard()
+        entry = w._panel_entry("id", "123", "americas", "cmd")
+        self.assertTrue(entry["command"].endswith("uvx"), entry["command"])
+        self.assertIn("--from", entry["args"])
+        self.assertTrue(any(a.startswith("git+") for a in entry["args"]),
+                        "args must pin a git URL: %s" % entry["args"])
+        self.assertIn("prisma-sase-mcp", entry["args"])
+
+    def test_written_config_is_owner_only_and_keeps_other_servers(self):
+        w = self._wizard()
+        home = tempfile.mkdtemp()
+        try:
+            path = os.path.join(home, "claude_desktop_config.json")
+            import json
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"mcpServers": {"someone-else": {"command": "x"}}}, fh)
+            w._panel_config_path = lambda: path
+            written, action = w._write_panel_config(
+                w._panel_entry("id", "123", "americas", "cmd"))
+            self.assertEqual(action, "added")
+            with open(written, encoding="utf-8") as fh:
+                got = json.load(fh)
+            self.assertIn("someone-else", got["mcpServers"],
+                          "clobbered an unrelated server")
+            self.assertIn("prisma-sase", got["mcpServers"])
+            self.assertEqual(oct(os.stat(written).st_mode & 0o777), "0o600")
+            self.assertTrue(os.path.exists(written + ".bak"),
+                            "no backup was left behind")
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_a_broken_config_is_not_overwritten(self):
+        """Better to fail than to silently discard someone's servers."""
+        w = self._wizard()
+        home = tempfile.mkdtemp()
+        try:
+            path = os.path.join(home, "claude_desktop_config.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("{ this is not json")
+            w._panel_config_path = lambda: path
+            with self.assertRaises(Exception):
+                w._write_panel_config(w._panel_entry("id", "1", "a", "c"))
+            with open(path, encoding="utf-8") as fh:
+                self.assertIn("not json", fh.read())
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_no_secret_is_ever_passed_where_ps_can_read_it(self):
+        """argv is world-readable; only the macOS backend has no stdin mode."""
+        src = open(os.path.join(MCP, "setup_wizard.py"), encoding="utf-8").read()
+        body = src.split("def _store_secret", 1)[1].split("\ndef ", 1)[0]
+        for backend in ("secret-tool", "pass"):
+            chunk = body.split('"%s"' % backend, 1)[1].split("elif", 1)[0]
+            self.assertIn("input=", chunk,
+                          "the %s backend must receive the secret on stdin, "
+                          "not in argv" % backend)
+
+    # -- which config file gets written (field report, 2026-07-27) ----------
+    #
+    # The app directory is not always "Claude": a third-party/enterprise build
+    # uses a suffix (Claude-3p). Writing blindly to "Claude" on such a machine
+    # reports success into a file the running app never reads -- credentials
+    # present, no tools, and nothing anywhere says why.
+
+    def _fake_home(self, *dirnames):
+        """Build a Library/Application Support tree with the given app dirs."""
+        home = tempfile.mkdtemp()
+        base = os.path.join(home, "Library", "Application Support")
+        made = []
+        for name in dirnames:
+            d = os.path.join(base, name)
+            os.makedirs(d)
+            p = os.path.join(d, "claude_desktop_config.json")
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write('{"mcpServers": {}}\n')
+            made.append(p)
+        return home, made
+
+    def _with_home(self, w, home, env=None):
+        """Point the wizard at a fake home, undoing it when the test ends.
+
+        w.os and w.platform are the real shared modules, so these patches must
+        be reverted or they leak into every test that runs afterwards.
+        """
+        import unittest.mock as mock
+        for p in (mock.patch.object(
+                      w.os.path, "expanduser",
+                      lambda q: q.replace("~", home, 1)
+                      if q.startswith("~") else q),
+                  mock.patch.object(w.platform, "system", lambda: "Darwin"),
+                  # patch.dict snapshots and restores the whole mapping on
+                  # stop, so edits made after start() are undone too.
+                  mock.patch.dict(w.os.environ, env or {})):
+            p.start()
+            self.addCleanup(p.stop)
+        if not env:
+            w.os.environ.pop("PRISMA_PANEL_CONFIG", None)
+
+    def test_suffixed_app_dir_is_found_when_it_is_the_only_one(self):
+        w = self._wizard()
+        home, (three_p,) = self._fake_home("Claude-3p")
+        try:
+            self._with_home(w, home)
+            self.assertEqual(
+                w._panel_config_path(), three_p,
+                "only Claude-3p exists, so writing to Claude/ would land in a "
+                "file no app reads")
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_with_several_installs_the_most_recent_one_wins(self):
+        w = self._wizard()
+        home, (plain, three_p) = self._fake_home("Claude", "Claude-3p")
+        try:
+            os.utime(plain, (1_600_000_000, 1_600_000_000))
+            os.utime(three_p, (1_700_000_000, 1_700_000_000))
+            self._with_home(w, home)
+            self.assertEqual(w._panel_config_path(), three_p,
+                             "the recently-touched config is the app in use")
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_an_explicit_override_beats_the_guess(self):
+        """The heuristic can be wrong; there must be a way to say so."""
+        w = self._wizard()
+        home, _ = self._fake_home("Claude", "Claude-3p")
+        try:
+            chosen = os.path.join(home, "somewhere-else.json")
+            self._with_home(w, home, env={"PRISMA_PANEL_CONFIG": chosen})
+            self.assertEqual(w._panel_config_path(), chosen)
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_a_fresh_machine_still_gets_the_plain_path(self):
+        w = self._wizard()
+        home, _ = self._fake_home()
+        try:
+            self._with_home(w, home)
+            self.assertTrue(
+                w._panel_config_path().endswith(
+                    os.path.join("Claude", "claude_desktop_config.json")),
+                w._panel_config_path())
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def _choose(self, w, answer):
+        """Run the interactive chooser with `answer` typed at the prompt."""
+        import io
+        import unittest.mock as mock
+        out = io.StringIO()
+        with mock.patch.object(w, "input", create=True,
+                               side_effect=lambda _="": answer), \
+                contextlib.redirect_stdout(out):
+            return w._choose_panel_config(), out.getvalue()
+
+    def test_several_installs_are_offered_as_a_choice(self):
+        """The heuristic must not decide this silently.
+
+        Picking wrong is invisible -- the write succeeds and no tools appear
+        -- so the user has to see the alternatives and be able to say which.
+        """
+        w = self._wizard()
+        home, (plain, three_p) = self._fake_home("Claude", "Claude-3p")
+        try:
+            os.utime(plain, (1_600_000_000, 1_600_000_000))
+            os.utime(three_p, (1_700_000_000, 1_700_000_000))
+            self._with_home(w, home)
+
+            chosen, shown = self._choose(w, "")        # bare Enter
+            self.assertEqual(chosen, three_p, "default is the recent one")
+            self.assertIn(plain, shown,
+                          "the alternative must be listed, not hidden")
+
+            chosen, _ = self._choose(w, "2")           # override the default
+            self.assertEqual(chosen, plain,
+                             "an explicit answer must be honoured")
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_a_single_install_is_not_turned_into_a_question(self):
+        """Asking when there is nothing to choose is just noise."""
+        w = self._wizard()
+        home, (three_p,) = self._fake_home("Claude-3p")
+        try:
+            self._with_home(w, home)
+            chosen, shown = self._choose(w, "")
+            self.assertEqual(chosen, three_p)
+            self.assertNotIn("which one", shown.lower())
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_the_listing_names_servers_but_never_values(self):
+        """The chooser reads other people's configs to describe them.
+
+        Those hold API tokens. Printing a value to help someone tell two
+        configs apart would leak a credential to the terminal and the scroll
+        buffer -- names are enough to identify a file.
+        """
+        w = self._wizard()
+        home, (plain,) = self._fake_home("Claude")
+        try:
+            with open(plain, "w", encoding="utf-8") as fh:
+                json.dump({"mcpServers": {"other": {
+                    "env": {"API_TOKEN": "s3cr3t-do-not-print"}}}}, fh)
+            self._with_home(w, home)
+            desc = w._describe_config(plain)
+            self.assertIn("other", desc)
+            self.assertNotIn("s3cr3t", desc)
+            self.assertNotIn("API_TOKEN", desc)
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_the_listing_says_which_build_each_config_belongs_to(self):
+        """The suffix is product knowledge, not a naming quirk: "-3p" is the
+        custom-gateway build and the unsuffixed directory is the subscription
+        one. Both are ordinary installs, so neither is "the wrong one" -- the
+        user picks the build they work in.
+
+        Which makes the build the one fact that decides the answer, and it
+        was missing. The listing described configs by their MCP servers, and
+        two fresh installs both hold none: the prompt offered two paths that
+        differed only in a directory name, on exactly the machine where
+        getting it right matters.
+        """
+        w = self._wizard()
+        home, (plain, three_p) = self._fake_home("Claude", "Claude-3p")
+        try:
+            self._with_home(w, home)
+            self.assertIn("subscription", w._describe_config(plain))
+            self.assertIn("custom gateway", w._describe_config(three_p))
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_the_build_is_named_even_when_a_config_is_empty_or_broken(self):
+        """The two cases where nothing else distinguishes them at all."""
+        w = self._wizard()
+        home, (plain, three_p) = self._fake_home("Claude", "Claude-3p")
+        try:
+            with open(three_p, "w", encoding="utf-8") as fh:
+                fh.write("{ not json")
+            self._with_home(w, home)
+            # plain is the untouched fixture: valid JSON, zero servers.
+            self.assertIn("subscription", w._describe_config(plain))
+            self.assertIn("custom gateway", w._describe_config(three_p))
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_the_prompt_does_not_recommend_by_timestamp(self):
+        """It used to say the most recently modified was "usually the one in
+        use". For two builds of the same app that is a guess dressed as
+        advice -- mtime says which was last written, not which the user
+        works in. Ordering still puts it first; only the claim is gone."""
+        w = self._wizard()
+        home, _ = self._fake_home("Claude", "Claude-3p")
+        try:
+            self._with_home(w, home)
+            _, shown = self._choose(w, "1")
+            self.assertNotIn("usually", shown.lower(),
+                             "the prompt recommends a config by mtime:\n"
+                             + shown)
+            self.assertIn("build you actually use", shown)
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_an_unreadable_config_is_described_not_crashed_on(self):
+        w = self._wizard()
+        home, (plain,) = self._fake_home("Claude")
+        try:
+            with open(plain, "w", encoding="utf-8") as fh:
+                fh.write("{ not json")
+            self._with_home(w, home)
+            self.assertIn("JSON", w._describe_config(plain))
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_no_terminal_falls_back_instead_of_dying(self):
+        """Piped stdin is a real case (CI, a wrapper script)."""
+        w = self._wizard()
+        home, (plain, three_p) = self._fake_home("Claude", "Claude-3p")
+        try:
+            os.utime(plain, (1_600_000_000, 1_600_000_000))
+            os.utime(three_p, (1_700_000_000, 1_700_000_000))
+            self._with_home(w, home)
+            import io
+            import unittest.mock as mock
+            out = io.StringIO()
+            with mock.patch.object(w, "input", create=True,
+                                   side_effect=EOFError), \
+                    contextlib.redirect_stdout(out):
+                chosen = w._choose_panel_config()
+            self.assertEqual(chosen, three_p)
+            self.assertIn(three_p, out.getvalue(),
+                          "a silent fallback is the bug this fixes")
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+
+class CrossPlatform(unittest.TestCase):
+    """0.9.0 -- the wizard has to behave on the two systems it is not being
+    developed on.
+
+    Every one of these runs on macOS against a patched platform.system(), so
+    they pin the *shape* of what would be emitted, not that it works. What
+    they can catch is the class of bug that put this class here: Windows had
+    no secret backend at all, so the wizard's whole purpose -- keeping the
+    secret out of the plaintext config -- quietly did not apply there, and
+    nothing failed to say so.
+    """
+
+    def _wizard(self, osname, **env):
+        """Load setup_wizard as `osname`, with a clean PRISMA_* environment."""
+        import importlib.util
+        import unittest.mock as mock
+        spec = importlib.util.spec_from_file_location(
+            "wiz_%s" % osname, os.path.join(MCP, "setup_wizard.py"))
+        w = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(w)
+        p = mock.patch.object(w.platform, "system", lambda: osname)
+        p.start()
+        self.addCleanup(p.stop)
+        d = mock.patch.dict(w.os.environ, env)
+        d.start()
+        self.addCleanup(d.stop)
+        return w
+
+    def _fake_powershell(self, w, path=r"C:\Windows\System32\powershell.exe"):
+        import unittest.mock as mock
+        p = mock.patch.object(w.shutil, "which",
+                              lambda n: path if n == "powershell" else None)
+        p.start()
+        self.addCleanup(p.stop)
+
+    # -- the bug this class exists for ------------------------------------
+
+    def test_windows_has_a_secret_backend(self):
+        """Without one the wizard delivers less than it advertises.
+
+        Its stated purpose is keeping the secret out of the plaintext config.
+        On Windows it used to find no backend, emit a
+        PRISMA_CLIENT_SECRET placeholder, and tell the user to paste the
+        secret into the very file the wizard exists to keep it out of.
+        """
+        w = self._wizard("Windows")
+        self._fake_powershell(w)
+        name, fetch = w._backend()
+        self.assertEqual(name, "dpapi")
+        self.assertTrue(fetch)
+
+        entry = w._panel_entry("cid@1", "1", "sg", w._quote(fetch))
+        self.assertIn("PRISMA_SECRET_CMD", entry["env"])
+        self.assertNotIn("PRISMA_CLIENT_SECRET", entry["env"],
+                         "a plaintext secret field is what dpapi replaces")
+
+    def test_windows_secret_command_survives_cmd_exe(self):
+        """PRISMA_SECRET_CMD is run with shell=True -- cmd.exe on Windows.
+
+        shlex.quote emits POSIX single quotes, which cmd.exe passes through
+        as literal characters; PowerShell would then see an argument starting
+        with a stray quote. cmd.exe also eats bare double quotes and expands
+        %VAR% even inside them.
+        """
+        w = self._wizard("Windows")
+        self._fake_powershell(w)
+        cmd = w._quote(w._backend()[1])
+        self.assertNotIn("'C:", cmd, "POSIX quoting leaked into a cmd.exe line")
+        self.assertNotIn("%", cmd, "cmd.exe would expand this as a variable")
+        self.assertEqual(cmd.count('"') % 2, 0, "unbalanced double quotes")
+
+    def test_windows_quoting_refuses_what_it_cannot_express(self):
+        """cmd.exe cannot escape a double quote inside a quoted argument.
+
+        Emitting a mangled command would fail at launch with no clue why, so
+        the quoting raises instead.
+        """
+        w = self._wizard("Windows")
+        with self.assertRaises(ValueError):
+            w._quote(['say "hi"'])
+
+    def test_a_path_with_a_space_is_quoted(self):
+        """Program Files is the default install location for a lot of this."""
+        w = self._wizard("Windows")
+        self.assertEqual(w._quote([r"C:\Program Files\ps.exe", "-x"]),
+                         r'"C:\Program Files\ps.exe" -x')
+
+    def test_a_metacharacter_without_a_space_is_still_quoted(self):
+        """`&` splits a cmd.exe line on its own -- quoting only on
+        whitespace would let the tail of an argument run as a command."""
+        w = self._wizard("Windows")
+        self.assertEqual(w._quote(["a&calc"]), '"a&calc"')
+
+    def test_a_percent_sign_is_refused(self):
+        """cmd.exe expands %VAR% even inside double quotes, and nothing
+        available here escapes it."""
+        w = self._wizard("Windows")
+        with self.assertRaises(ValueError):
+            w._quote(["%USERPROFILE%"])
+
+    def test_the_blob_path_is_backslashed(self):
+        """It is interpolated into PowerShell and read by Windows. Built with
+        os.path.join it comes out mixed-separator when this runs elsewhere."""
+        w = self._wizard("Windows", LOCALAPPDATA=r"C:\Users\e\AppData\Local")
+        self.assertNotIn("/", w._dpapi_blob_path())
+
+    # -- PATH --------------------------------------------------------------
+
+    def test_the_panel_path_is_not_macos_shaped_on_linux(self):
+        """uvx needs git and its interpreter findable, and the app supplies
+        no PATH. ~/.local/bin is where the official uv installer puts them."""
+        w = self._wizard("Linux")
+        path = w._panel_path()
+        self.assertIn(".local/bin", path)
+        self.assertIn(":", path)
+        self.assertNotIn(";", path)
+
+    def test_the_panel_path_uses_windows_separators(self):
+        w = self._wizard("Windows", SystemRoot=r"C:\Windows")
+        path = w._panel_path()
+        self.assertIn(";", path)
+        self.assertIn(r"C:\Windows\System32", path)
+
+    def test_windows_keeps_its_path(self):
+        """It used to be popped, on the theory that Windows resolves .exe
+        without help. uvx still has to find git."""
+        w = self._wizard("Windows")
+        self._fake_powershell(w)
+        self.assertIn("PATH", w._panel_entry("c", "1", "sg", None)["env"])
+
+    def test_the_directory_uvx_lives_in_is_on_the_path(self):
+        """A non-standard install location has to work without an edit here."""
+        import unittest.mock as mock
+        w = self._wizard("Linux")
+        with mock.patch.object(w.shutil, "which",
+                               lambda n: "/opt/weird/bin/uvx"
+                               if n == "uvx" else None):
+            self.assertTrue(w._panel_path().startswith("/opt/weird/bin:"))
+
+    def test_the_directory_git_lives_in_is_on_the_path_too(self):
+        """Same reasoning as uvx, and the same consequence when it is wrong:
+        uvx cannot resolve git+https:// without git, and the hardcoded
+        "C:\\Program Files\\Git\\cmd" is only where the usual installer puts
+        it. Winget, Scoop and a portable copy all put it somewhere else."""
+        import unittest.mock as mock
+        w = self._wizard("Linux")
+        with mock.patch.object(w.shutil, "which",
+                               lambda n: "/opt/git/bin/git"
+                               if n == "git" else None):
+            self.assertIn("/opt/git/bin", w._panel_path().split(":"))
+
+    def test_windows_is_given_a_pathext(self):
+        """The one that actually bit, and it does not look like a PATH bug.
+
+        The host hands the server a fixed allow-list of variables and PATHEXT
+        is not on it, so it is absent in the child. Windows supplies no
+        default for an absent PATHEXT -- nothing gets appended -- so "git" is
+        looked up literally and never matches git.exe, however right PATH is.
+
+        uv reports "Git executable not found. Ensure that Git is installed
+        and available" on a machine where git is installed and on PATH.
+        """
+        w = self._wizard("Windows")
+        self._fake_powershell(w)
+        env = w._panel_entry("c", "1", "sg", None)["env"]
+        self.assertIn(".EXE", env.get("PATHEXT", "").upper())
+
+    def test_pathext_is_not_set_off_windows(self):
+        """It means nothing to a POSIX exec and would only be noise in a
+        config the user reads."""
+        w = self._wizard("Linux")
+        self.assertNotIn("PATHEXT", w._panel_entry("c", "1", "sg", None)["env"])
+
+    # -- config location ---------------------------------------------------
+
+    def test_windows_config_lives_under_appdata(self):
+        import unittest.mock as mock
+        w = self._wizard("Windows", APPDATA=r"C:\Users\e\AppData\Roaming")
+        with mock.patch.object(w.os, "listdir", lambda _: []):
+            self.assertEqual(w._panel_config_dirs()[0],
+                             os.path.join(r"C:\Users\e\AppData\Roaming",
+                                          "Claude"))
+
+    def _fake_win_appdata(self, w, roaming=(), local=()):
+        """A Windows AppData tree with the given app dirs under each base.
+
+        Returns (roaming_base, local_base, {dirname: config path}). Only dirs
+        named here exist, so a listdir of the other base returns nothing.
+        """
+        import unittest.mock as mock
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        r = os.path.join(root, "Roaming")
+        l = os.path.join(root, "Local")
+        made = {}
+        for base, names in ((r, roaming), (l, local)):
+            os.makedirs(base, exist_ok=True)
+            for name in names:
+                d = os.path.join(base, name)
+                os.makedirs(d)
+                p = os.path.join(d, "claude_desktop_config.json")
+                with open(p, "w", encoding="utf-8") as fh:
+                    fh.write('{"mcpServers": {}}\n')
+                made[name] = p
+        d = mock.patch.dict(w.os.environ,
+                            {"APPDATA": r, "LOCALAPPDATA": l})
+        d.start()
+        self.addCleanup(d.stop)
+        w.os.environ.pop("PRISMA_PANEL_CONFIG", None)
+        return r, l, made
+
+    def test_a_config_under_localappdata_is_found(self):
+        """Field report, 2026-07-27: a Claude-3p install on Windows kept its
+        claude_desktop_config.json under %LOCALAPPDATA%, not %APPDATA%.
+
+        Only Roaming was searched, so the wizard would have reported success
+        into a Roaming\\Claude file that no running app reads -- the same
+        silent failure the Claude-3p suffix handling exists to prevent, one
+        directory level up. The suffix was handled; the parent was assumed.
+        """
+        w = self._wizard("Windows")
+        _, _, made = self._fake_win_appdata(w, local=("Claude-3p",))
+        self.assertEqual(
+            w._panel_config_path(), made["Claude-3p"],
+            "the only config on the machine is under LOCALAPPDATA and it was "
+            "not found")
+
+    def test_plain_claude_under_localappdata_is_found_too(self):
+        """Not just the suffixed name. A standard-named install in the
+        non-standard base is the same trap, and the Roaming\\Claude path is
+        always in the candidate list whether or not anything is there -- so
+        the search must not stop at the first name it recognises."""
+        w = self._wizard("Windows")
+        _, _, made = self._fake_win_appdata(w, local=("Claude",))
+        self.assertEqual(w._panel_config_path(), made["Claude"])
+
+    def test_both_bases_are_searched_and_the_recent_one_wins(self):
+        w = self._wizard("Windows")
+        _, _, made = self._fake_win_appdata(
+            w, roaming=("Claude",), local=("Claude-3p",))
+        found = w._existing_panel_configs()
+        self.assertEqual(sorted(found), sorted(made.values()),
+                         "both bases must be searched, not just one")
+        # Make the Roaming one clearly newer; it should then be preferred.
+        os.utime(made["Claude"], (2 ** 31 - 1, 2 ** 31 - 1))
+        self.assertEqual(w._panel_config_path(), made["Claude"])
+
+    def test_roaming_claude_is_still_the_default_when_nothing_exists(self):
+        """A fresh machine must not start writing to Local. Roaming is where
+        Electron's userData resolves, so it stays the first candidate."""
+        w = self._wizard("Windows")
+        r, _, _ = self._fake_win_appdata(w)
+        self.assertEqual(w._panel_config_path(),
+                         os.path.join(r, "Claude",
+                                      "claude_desktop_config.json"))
+
+    def test_the_dpapi_blob_is_local_not_roaming(self):
+        """DPAPI ties the blob to this user on this machine, so roaming it
+        would only propagate a file the other machine cannot decrypt."""
+        w = self._wizard("Windows", LOCALAPPDATA=r"C:\Users\e\AppData\Local")
+        self.assertTrue(w._dpapi_blob_path().startswith(
+            r"C:\Users\e\AppData\Local"))
+
+    # -- the PowerShell itself ---------------------------------------------
+
+    def test_the_powershell_never_puts_the_secret_on_a_command_line(self):
+        """argv is readable by every process running as this user."""
+        w = self._wizard("Windows")
+        store = w._dpapi_store_script(r"C:\x\secret.bin")
+        self.assertIn("[Console]::In.ReadLine()", store)
+        self.assertNotIn("-AsPlainText $s", store)
+
+    def test_the_powershell_is_inline_so_execution_policy_cannot_block_it(self):
+        """Execution policy applies to script files, not -Command."""
+        w = self._wizard("Windows")
+        self._fake_powershell(w)
+        argv = w._backend()[1]
+        self.assertIn("-Command", argv)
+        self.assertNotIn("-File", argv)
+        self.assertIn("-NoProfile", argv,
+                      "a user profile could print banners into stdout")
+
+    def test_a_path_with_a_quote_in_it_cannot_break_out_of_the_script(self):
+        w = self._wizard("Windows")
+        self.assertEqual(w._ps_quote("it's"), "'it''s'")
+
+    def test_dpapi_encrypts_with_no_key_so_it_binds_to_the_user(self):
+        """ConvertFrom-SecureString -Key would use a key we would then have
+        to store somewhere, defeating the point."""
+        w = self._wizard("Windows")
+        self.assertNotIn("-Key", w._dpapi_store_script(r"C:\x"))
+
+    # -- ARM64 Windows: cryptography has no win_arm64 wheel ------------------
+
+    def _arch(self, w, machine):
+        import unittest.mock as mock
+        p = mock.patch.object(w.platform, "machine", lambda: machine)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_arm64_windows_asks_for_an_x64_interpreter(self):
+        """Verified on a real ARM64 Windows VM: the native interpreter sends uv
+        off to build cryptography==49.0.0 from source, because its authors
+        publish no win_arm64 wheel for the current version. That needs Rust and
+        MSVC, and the failure names cargo rather than anything to do with this
+        plugin. x64 is emulated on ARM Windows and its wheels exist."""
+        w = self._wizard("Windows")
+        self._arch(w, "ARM64")
+        args = w._uvx_args()
+        self.assertIn("--python", args)
+        self.assertEqual("cpython-3.12-windows-x86_64",
+                         args[args.index("--python") + 1])
+
+    def test_the_interpreter_is_pinned_only_where_it_is_needed(self):
+        """Choosing uv's interpreter for it is a liberty, justified only by the
+        missing wheel. Everywhere else uv should decide."""
+        for osname, machine in (("Windows", "AMD64"), ("Darwin", "arm64"),
+                                ("Darwin", "x86_64"), ("Linux", "aarch64"),
+                                ("Linux", "x86_64")):
+            with self.subTest(os=osname, machine=machine):
+                w = self._wizard(osname)
+                self._arch(w, machine)
+                self.assertEqual(["--from", w.GIT_URL, "prisma-sase-mcp"],
+                                 w._uvx_args())
+
+    def test_the_from_argument_still_comes_last(self):
+        """uvx reads everything before --from as its own. A flag appended after
+        the package would be passed to the server instead, which would take it
+        for an unknown option."""
+        w = self._wizard("Windows")
+        self._arch(w, "ARM64")
+        args = w._uvx_args()
+        self.assertEqual(["--from", w.GIT_URL, "prisma-sase-mcp"], args[-3:])
+
+    def test_the_panel_entry_carries_the_interpreter_through(self):
+        """_uvx_args being right is no use if the entry does not use it."""
+        w = self._wizard("Windows")
+        self._arch(w, "ARM64")
+        self._fake_powershell(w)
+        entry = w._panel_entry("cid", "tsg", "de", "cmd")
+        self.assertIn("--managed-python", entry["args"])
+
+
+class WindowsVerifierScript(unittest.TestCase):
+    """0.9.0 -- tools/verify-windows.ps1 is written on macOS and only ever runs
+    on Windows, so a syntax error in it is not discovered until someone is
+    sitting at a VM waiting for an answer.
+
+    That happened: a `\\"` escape, correct in C and sh, is not an escape in
+    PowerShell. The file failed to parse and none of the ten checks ran. These
+    tests are the cheap half of the guard -- a parser is better, and
+    test_it_parses runs one when pwsh is available."""
+
+    PS1 = os.path.join(ROOT, "tools", "verify-windows.ps1")
+
+    def setUp(self):
+        with open(self.PS1, "r", encoding="utf-8") as fh:
+            self.src = fh.read()
+
+    def test_no_backslash_escaped_quotes(self):
+        r"""PowerShell escapes a double quote as `" or "", never \". Writing
+        \" is the C/sh habit and produces a parse error, not a quote."""
+        bad = [(i, l) for i, l in enumerate(self.src.splitlines(), 1)
+               if '\\"' in l]
+        self.assertEqual([], bad,
+                         "backslash-escaped quotes are not PowerShell:\n" +
+                         "\n".join("  L%d: %s" % (i, l.strip()) for i, l in bad))
+
+    def test_no_powershell_7_only_syntax(self):
+        """Windows ships Windows PowerShell 5.1. ??, && and ?. are 7.0+, and
+        this script has to run on a stock machine."""
+        code = "\n".join(l for l in self.src.splitlines()
+                         if not l.lstrip().startswith("#"))
+        for tok in ("??", "&&", "?."):
+            self.assertNotIn(tok, code, "%r needs PowerShell 7" % tok)
+
+    def test_args_is_not_assigned(self):
+        """$args is an automatic variable; assigning to it works until it
+        does not."""
+        self.assertNotRegex(self.src, r"\$args\s*=")
+
+    def test_the_interpreter_probe_does_not_ask_platform_machine(self):
+        """It asks sysconfig.get_platform(), and the distinction is the whole
+        check. On Windows platform.machine() *is* PROCESSOR_ARCHITEW6432 or
+        PROCESSOR_ARCHITECTURE -- it describes the machine, so an x64
+        interpreter on ARM64 Windows still answers ARM64. Probing with it
+        reported a real ARM64 VM as broken when it was fine. Wheels are matched
+        against get_platform(), which is baked in at interpreter build time."""
+        probe = re.search(r"\$probe -Encoding ascii -Value @\((.*?)\n\s*\)",
+                          self.src, re.S)
+        self.assertIsNotNone(probe, "could not find the probe script")
+        self.assertIn("sysconfig.get_platform", probe.group(1))
+        self.assertNotIn("platform.machine", probe.group(1))
+
+    def test_the_closing_advice_reuses_the_wizards_own_args(self):
+        """The last thing the script prints is the command to run next, and it
+        must be built from $g.uvxargs rather than typed out.
+
+        A hardcoded `uvx --from git+... prisma-sase-setup` looks harmless and
+        is not: prisma-sase-setup ships in the same package as the server, so
+        uvx installs the same dependencies for it -- cryptography included. On
+        ARM64 that command dies on the missing win_arm64 wheel, at the first
+        thing the user is told to run, with the wizard not yet in the picture
+        to correct anything."""
+        tail = self.src[self.src.index("all checks passed"):]
+        self.assertNotRegex(
+            tail, r'uvx --from git\+',
+            "the closing advice hardcodes uvx args -- on ARM64 it must carry "
+            "the interpreter flags, so build it from $g.uvxargs")
+        self.assertIn("uvxargs", tail,
+                      "the closing advice should derive from the wizard's "
+                      "own args")
+        self.assertIn("prisma-sase-setup", tail,
+                      "the closing advice should still name the setup command")
+
+    def test_it_parses(self):
+        """The real check, when a parser is to hand. Skipped rather than
+        failed when it is not, so this suite still runs anywhere."""
+        pwsh = shutil.which("pwsh") or "/tmp/psdl/pwsh"
+        if not os.path.exists(pwsh):
+            self.skipTest("no pwsh available to parse with")
+        script = (
+            '$e=$null;'
+            '[System.Management.Automation.Language.Parser]::ParseFile('
+            '"%s",[ref]$null,[ref]$e)|Out-Null;'
+            'if($e){$e|%%{"L$($_.Extent.StartLineNumber): $($_.Message)"}}'
+            % self.PS1)
+        out = subprocess.run([pwsh, "-NoProfile", "-Command", script],
+                             capture_output=True, text=True, timeout=120)
+        self.assertEqual("", out.stdout.strip(), "parse errors:\n" + out.stdout)
+
+
+class BootstrapCommandOnArm(unittest.TestCase):
+    """0.9.0 -- the setup command is the one thing the wizard cannot fix.
+
+    _uvx_args() detects ARM64 Windows and writes an x64 interpreter into the
+    panel entry, which fixes every *later* launch. It does nothing for the
+    command that installs the wizard in the first place: prisma-sase-setup and
+    the server are two entry points of one package, so uvx resolves the same
+    dependency set for both, cryptography included. On ARM64 the documented
+    one-liner therefore fails before the wizard has run at all.
+
+    Docs are the only lever on that first command, and the failure mode of
+    docs is that one copy gets updated. Three files publish it."""
+
+    # Each file that publishes the bootstrap command, and the anchor to look
+    # for near it. plugin/README.md carries the full explanation; the two
+    # top-level READMEs need only point at it, in their own language.
+    SOURCES = (
+        ("README.md", "ARM64 Windows"),
+        ("README.zh-TW.md", "ARM64 Windows"),
+        (os.path.join("plugin", "README.md"), "Windows on ARM"),
+    )
+
+    FLAGS = "--managed-python"
+
+    def _read(self, rel):
+        with open(os.path.join(ROOT, rel), "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_every_published_bootstrap_command_warns_about_arm(self):
+        for rel, anchor in self.SOURCES:
+            with self.subTest(file=rel):
+                text = self._read(rel)
                 self.assertIn(
-                    key, declared,
-                    "%s uses ${user_config.%s} but the manifest does not "
-                    "declare it" % (entry["name"], key))
+                    "prisma-sase-setup", text,
+                    "%s no longer publishes the setup command -- if that "
+                    "moved, move this test with it" % rel)
+                self.assertIn(
+                    anchor, text,
+                    "%s tells the user to run prisma-sase-setup without "
+                    "mentioning ARM64 Windows, where that exact command "
+                    "fails on a missing cryptography wheel" % rel)
+                self.assertIn(
+                    self.FLAGS, text,
+                    "%s should show the %s flags, not just describe the "
+                    "problem" % (rel, self.FLAGS))
 
-    def test_every_credential_var_is_wired(self):
-        env = self._manifest()["mcpServers"]["prisma-sase"]["env"]
-        for var in ("PRISMA_CLIENT_ID", "PRISMA_CLIENT_SECRET",
-                    "PRISMA_TSG_ID", "PRISMA_REGION"):
-            self.assertIn(var, env, "%s is not passed to the server" % var)
-
-    def test_the_secret_is_marked_sensitive(self):
-        """sensitive:true keeps it out of settings.json and in secure storage."""
-        spec = self._manifest()["userConfig"]["client_secret"]
-        self.assertTrue(
-            spec.get("sensitive"),
-            "client_secret must be sensitive:true or it lands in plaintext "
-            "settings.json")
+    def test_the_documented_flags_match_what_the_wizard_emits(self):
+        """Prose drifts from code silently. If _uvx_args() ever changes the
+        interpreter it asks for, the hand-typed bootstrap command in the docs
+        becomes wrong in a way nothing else would catch."""
+        import importlib.util
+        import unittest.mock as mock
+        spec = importlib.util.spec_from_file_location(
+            "wiz_arm_docs", os.path.join(MCP, "setup_wizard.py"))
+        w = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(w)
+        with mock.patch.object(w.platform, "system", lambda: "Windows"), \
+             mock.patch.object(w.platform, "machine", lambda: "ARM64"):
+            args = w._uvx_args()
+        # Everything the wizard adds before --from is what the user must type.
+        pinned = args[:args.index("--from")]
+        self.assertTrue(pinned, "the ARM64 branch emitted no extra args")
+        for rel, _ in self.SOURCES:
+            with self.subTest(file=rel):
+                text = self._read(rel)
+                for tok in pinned:
+                    self.assertIn(
+                        tok, text,
+                        "the wizard passes %r on ARM64 but %s does not show "
+                        "it in the bootstrap command" % (tok, rel))
 
 
 class HostSuppliedNothing(unittest.TestCase):
@@ -509,18 +1455,38 @@ class HostSuppliedNothing(unittest.TestCase):
         self.assertIn("PRISMA_TSG_ID", result["empty"])
         self.assertEqual(result["kind"], "expanded_empty")
 
-    def test_diagnosis_attributes_the_fault_to_the_host(self):
+    def test_diagnosis_attributes_the_fault_away_from_the_plugin(self):
+        """Empty-not-absent must still exonerate the tenant and the plugin.
+
+        0.9.0 changed WHO gets named -- the Local MCP entry rather than the
+        enable dialog -- but not the property that matters: the user must not
+        be sent to debug their tenant, and must be given a way out.
+        """
         result = self._diagnose(self.ENABLED_NO_CONFIG,
                                 PRISMA_CLIENT_ID="", PRISMA_CLIENT_SECRET="",
                                 PRISMA_TSG_ID="", PRISMA_REGION="sg")
-        self.assertIn("HOST issue", result["msg"])
-        self.assertIn("enable dialog never collected", result["msg"])
+        self.assertIn("EMPTY string(s)", result["msg"])
+        self.assertIn("nothing you change in the plugin", result["msg"])
         # It must also offer a way out, not just an attribution.
-        self.assertIn(".prisma-sase.env", result["msg"])
+        self.assertIn("prisma-sase-setup", result["msg"])
 
-    def test_enabled_with_no_config_entry_is_detected(self):
+    def test_enabled_with_no_config_entry_is_no_longer_a_diagnosis(self):
+        """0.9.0 -- the inverse regression of the one above.
+
+        Through 0.8.x, "enabled but no pluginConfigs entry" meant the enable
+        dialog never ran, because the plugin declared userConfig and so a
+        configured install always had an entry. 0.9.0 removed userConfig: the
+        plugin is a Skill and credentials arrive via the Local MCP entry,
+        which settings.json knows nothing about. That state is now what a
+        CORRECT install looks like, so claiming "this is a HOST issue" here
+        told every new user their working setup was broken and sent them
+        looking for a dialog that no longer exists.
+        """
         result = self._diagnose(self.ENABLED_NO_CONFIG)
-        self.assertEqual(result["kind"], "never_configured")
+        self.assertIsNone(
+            result["kind"],
+            "a Skill-only install with no credentials yet is ordinary, not a "
+            "host fault -- got: %s" % result["msg"])
 
     def test_literal_placeholders_outrank_settings_json(self):
         """Direct evidence from this process beats what settings.json implies."""
@@ -535,9 +1501,35 @@ class HostSuppliedNothing(unittest.TestCase):
         self.assertIsNone(result["kind"])
 
     def test_no_diagnosis_without_host_evidence(self):
-        """Credentials absent but no settings.json -- not the host's fault."""
+        """Credentials simply absent -- nobody has run setup yet, no fault."""
         result = self._diagnose(None)
         self.assertIsNone(result["kind"])
+
+    def test_selfcheck_points_a_fresh_install_at_setup(self):
+        """The no-credentials-yet path must offer the fix, not an accusation.
+
+        Pairs with the diagnosis test above: having stopped calling this a
+        host fault, selfcheck still has to tell the user what to actually do.
+        """
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, True)
+        os.makedirs(os.path.join(home, ".claude"))
+        with open(os.path.join(home, ".claude", "settings.json"), "w") as fh:
+            fh.write(self.ENABLED_NO_CONFIG)
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith("PRISMA_")}
+        env["HOME"] = home
+        proc = subprocess.run(
+            [sys.executable, os.path.join(MCP, "server.py"), "--selfcheck"],
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        text = proc.stdout.decode()
+        self.assertIn("prisma-sase-setup", text,
+                      "must name the setup command:\n" + text)
+        for accusation in ("HOST issue", "enable dialog never",
+                           "ENABLED but has NO configuration entry"):
+            self.assertNotIn(accusation, text,
+                             "must not blame the host on a fresh install:\n"
+                             + text)
 
     def test_selfcheck_does_not_claim_the_plugin_is_configured(self):
         """The reassuring 'IS configured' branch must not fire here.
@@ -562,10 +1554,9 @@ class HostSuppliedNothing(unittest.TestCase):
         self.assertEqual(proc.returncode, 1,
                          "must exit non-zero:\n" + text)
         self.assertNotIn("The plugin IS configured", text)
-        self.assertIn("ENABLED but has NO configuration entry", text)
         self.assertIn("expanded_empty", text)
 
-    def test_status_tool_blames_the_host_not_the_tenant(self):
+    def test_status_tool_blames_the_config_not_the_tenant(self):
         """Desktop users only reach the tools -- the verdict must be there."""
         home = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, home, True)
@@ -588,8 +1579,9 @@ class HostSuppliedNothing(unittest.TestCase):
         result = json.loads(out.stdout.decode())
         self.assertIsNotNone(result["cns"],
                              "get_sase_status must carry the verdict")
-        self.assertEqual(result["cns"]["whose_fault"], "host")
-        self.assertIn("host configuration problem", result["headline"])
+        self.assertEqual(result["cns"]["whose_fault"], "configuration")
+        self.assertIn("configuration problem", result["headline"])
+        self.assertNotIn("tenant problem.", result["headline"].split("not a")[0])
 
 
 @unittest.skipIf(os.name == "nt", "setup-keychain.sh is POSIX-only")
@@ -600,7 +1592,7 @@ class KeychainSetupScript(unittest.TestCase):
     matters is: whatever it writes, the secret is not in it.
     """
 
-    SCRIPT = os.path.join(ROOT, "plugin", "setup-keychain.sh")
+    SCRIPT = os.path.join(MCP, "setup-keychain.sh")
     SECRET = "CANARY-KEYCHAIN-SECRET"
 
     def setUp(self):
