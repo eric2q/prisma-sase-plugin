@@ -106,6 +106,17 @@ path. See the README for the full walkthrough.
   The old hint that the most recently modified one is "usually the one in use"
   is gone: both are real installs, and mtime says which was last written, not
   which you work in.
+- **DOC (install, high):** **git is now listed as a prerequisite.** Every
+  install command is `--from git+https://…`, so uv shells out to git to
+  resolve the ref — but the prerequisites table listed only uv, network and a
+  service account. On a clean Windows image with neither installed, the very
+  first command fails with *"Git executable not found"* and the docs offer
+  nothing. Found on a fresh VM; every machine tested before it already had git
+  for unrelated reasons. The troubleshooting entry for that message now splits
+  by *where* you saw it — in your own terminal it means git is genuinely
+  missing, in the MCP log on a machine where `git --version` works it is the
+  `PATHEXT` problem below — because the identical wording otherwise sends you
+  down the wrong path.
 - **FIX (Windows launch, high):** the server died at startup with uv's
   *"Git executable not found. Ensure that Git is installed and available"* on
   a machine where git was installed, on `PATH`, and working in every shell —

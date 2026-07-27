@@ -100,11 +100,18 @@ Then, in order:
    `%LOCALAPPDATA%\Claude*` — builds differ on which they use, and a
    `Claude-3p` install was found under `Local` in the field.)
 
-5. **Windows: `Git executable not found` when git is installed.** The full
-   message is uv's — *"Git executable not found. Ensure that Git is installed
-   and available"* — and it appears on machines where git is on `PATH` and
-   works in every shell you try. It is not a `PATH` problem, so adding git to
-   `PATH` again changes nothing.
+5. **`Git executable not found`.** uv's own message, and it has two quite
+   different causes. Tell them apart by *where* you saw it:
+
+   **In your own terminal, running `prisma-sase-setup`** — then it means what
+   it says: git is not installed. Every command here installs `--from
+   git+https://…`, so uv shells out to git to resolve the ref. Install it
+   (`winget install Git.Git` on Windows, `xcode-select --install` on macOS)
+   and **open a new terminal** so `PATH` is re-read. Nothing below applies.
+
+   **In the MCP log, at app launch, on a machine where `git --version` works**
+   — that is the other one, and it is not a `PATH` problem, so adding git to
+   `PATH` again changes nothing. Read on.
 
    The app passes the server only a fixed list of environment variables
    (`APPDATA`, `PATH`, `SYSTEMROOT` and a handful more). **`PATHEXT` is not on
@@ -301,8 +308,11 @@ a customer demo.
 
 Nothing platform-specific is left in the plugin: `uvx` is the launcher on every
 OS, so there is no per-OS package variant any more (0.8.x shipped three).
-Install uv with `winget install astral-sh.uv`, run the same
-`prisma-sase-setup` command from PowerShell, and restart Claude from the tray.
+Install uv with `winget install astral-sh.uv` and git with
+`winget install Git.Git` — uv shells out to git to resolve the `git+https://`
+ref, and a fresh Windows image has neither. Open a new PowerShell afterwards so
+`PATH` is re-read, run the same `prisma-sase-setup` command, and restart Claude
+from the tray.
 
 Credentials go in the same places. `chmod 600` doesn't apply on Windows; the
 env file sits in your user profile, which NTFS already restricts to you plus

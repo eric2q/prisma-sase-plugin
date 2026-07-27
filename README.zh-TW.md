@@ -53,6 +53,7 @@ Server 單獨就能用 —— Skill 只是讓 Claude 更會挑工具、更會判
 | 需要 | 怎麼確認 | 缺少時怎麼裝 |
 |---|---|---|
 | **uv**(提供 `uvx`) | `uvx --version` | `curl -LsSf https://astral.sh/uv/install.sh \| sh`(macOS/Linux)或 `brew install uv`。Windows:`winget install astral-sh.uv`。完整說明:[docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/) |
+| **git** | `git --version` | 底下每一道指令都是 `--from git+https://…`,uv 得叫 git 去解 ref。Windows:`winget install Git.Git`,裝完**開一個新的終端機**讓 `PATH` 重讀。macOS:`xcode-select --install`。Linux:用你的套件管理器。沒有它,uv 會停在 *"Git executable not found"* |
 | **能連 GitHub 與 PyPI 的網路** | — | uvx 第一次啟動時抓本 repo 與兩個依賴套件,之後走快取。公司 proxy 環境:設 `HTTPS_PROXY=http://proxy:port` |
 | **SCM 唯讀 service account** | — | 見下面的[產生 API Key](#產生-api-key建立唯讀-service-account) |
 

@@ -58,6 +58,7 @@ Phase 2 could add)? See the
 | You need | How to check | If it's missing |
 |---|---|---|
 | **uv** (provides `uvx`) | `uvx --version` | `curl -LsSf https://astral.sh/uv/install.sh \| sh` (macOS/Linux) or `brew install uv`. Windows: `winget install astral-sh.uv`. Full options: [docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/) |
+| **git** | `git --version` | Every command below installs `--from git+https://…`, so uv shells out to git to resolve the ref. Windows: `winget install Git.Git`, then **open a new terminal** so `PATH` is re-read. macOS: `xcode-select --install`. Linux: your package manager. Without it uv stops at *"Git executable not found"* |
 | **Network to GitHub + PyPI** | — | uvx fetches this repo and its two dependencies on first launch, then caches them. Behind a corporate proxy: set `HTTPS_PROXY=http://proxy:port` |
 | **A read-only SCM service account** | — | [Getting the API key](#getting-the-api-key-read-only-service-account), below |
 
