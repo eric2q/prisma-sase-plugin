@@ -150,16 +150,51 @@ def _ask_hidden(prompt):
         return None
 
 
-def _panel_config_path():
+def _panel_config_dirs():
+    """Every directory a Claude desktop build might keep its config in.
+
+    The app name is not always "Claude": third-party/enterprise distributions
+    use a suffixed directory (Claude-3p is the one seen in the field), and a
+    machine can carry several side by side. Writing blindly to "Claude" on
+    such a machine puts the entry in a file the running app never reads --
+    the setup reports success and no tools appear.
+    """
     home = os.path.expanduser("~")
     if platform.system() == "Darwin":
-        return os.path.join(home, "Library", "Application Support",
-                            "Claude", "claude_desktop_config.json")
-    if platform.system() == "Windows":
-        return os.path.join(os.environ.get("APPDATA", home),
-                            "Claude", "claude_desktop_config.json")
-    return os.path.join(home, ".config", "Claude",
-                        "claude_desktop_config.json")
+        base = os.path.join(home, "Library", "Application Support")
+    elif platform.system() == "Windows":
+        base = os.environ.get("APPDATA", home)
+    else:
+        base = os.path.join(home, ".config")
+    dirs = [os.path.join(base, "Claude")]
+    try:
+        for name in sorted(os.listdir(base)):
+            if name.startswith("Claude-"):
+                dirs.append(os.path.join(base, name))
+    except OSError:
+        pass
+    return dirs
+
+
+def _panel_config_path():
+    """Pick the config file to write.
+
+    PRISMA_PANEL_CONFIG wins outright. Otherwise: the one existing file if
+    there is exactly one, the most recently modified if there are several
+    (that is the app actually in use), and the plain "Claude" path if none
+    exists yet.
+    """
+    override = os.environ.get("PRISMA_PANEL_CONFIG")
+    if override:
+        return os.path.expanduser(override)
+    candidates = [os.path.join(d, "claude_desktop_config.json")
+                  for d in _panel_config_dirs()]
+    existing = [p for p in candidates if os.path.exists(p)]
+    if not existing:
+        return candidates[0]
+    if len(existing) == 1:
+        return existing[0]
+    return max(existing, key=lambda p: os.path.getmtime(p))
 
 
 def _uvx_path():
@@ -249,6 +284,12 @@ def main(argv=None):
         path = _panel_config_path()
         print("panel config   : %s" %
               (path if os.path.exists(path) else "%s (does not exist)" % path))
+        others = [p for p in
+                  (os.path.join(d, "claude_desktop_config.json")
+                   for d in _panel_config_dirs())
+                  if os.path.exists(p) and p != path]
+        for p in others:
+            print("  also present : %s (not written to)" % p)
         return 0
 
     print(BANNER)
@@ -316,7 +357,20 @@ def main(argv=None):
         return 0
 
     print("")
-    print("Write this into %s ?" % _panel_config_path())
+    target = _panel_config_path()
+    rivals = [p for p in
+              (os.path.join(d, "claude_desktop_config.json")
+               for d in _panel_config_dirs())
+              if os.path.exists(p) and p != target]
+    if rivals:
+        # Several Claude builds installed. Picking silently is how the entry
+        # ends up in a file the running app never reads.
+        print("More than one Claude config exists on this machine:")
+        for p in rivals:
+            print("    %s" % p)
+        print("  Choosing the most recently modified one (the app in use).")
+        print("  Override with PRISMA_PANEL_CONFIG=<path> if that is wrong.")
+    print("Write this into %s ?" % target)
     try:
         answer = input("  [y/N]: ").strip().lower()
     except (EOFError, KeyboardInterrupt):

@@ -661,6 +661,94 @@ class SetupWizard(unittest.TestCase):
                           "the %s backend must receive the secret on stdin, "
                           "not in argv" % backend)
 
+    # -- which config file gets written (field report, 2026-07-27) ----------
+    #
+    # The app directory is not always "Claude": a third-party/enterprise build
+    # uses a suffix (Claude-3p). Writing blindly to "Claude" on such a machine
+    # reports success into a file the running app never reads -- credentials
+    # present, no tools, and nothing anywhere says why.
+
+    def _fake_home(self, *dirnames):
+        """Build a Library/Application Support tree with the given app dirs."""
+        home = tempfile.mkdtemp()
+        base = os.path.join(home, "Library", "Application Support")
+        made = []
+        for name in dirnames:
+            d = os.path.join(base, name)
+            os.makedirs(d)
+            p = os.path.join(d, "claude_desktop_config.json")
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write('{"mcpServers": {}}\n')
+            made.append(p)
+        return home, made
+
+    def _with_home(self, w, home, env=None):
+        """Point the wizard at a fake home, undoing it when the test ends.
+
+        w.os and w.platform are the real shared modules, so these patches must
+        be reverted or they leak into every test that runs afterwards.
+        """
+        import unittest.mock as mock
+        for p in (mock.patch.object(
+                      w.os.path, "expanduser",
+                      lambda q: q.replace("~", home, 1)
+                      if q.startswith("~") else q),
+                  mock.patch.object(w.platform, "system", lambda: "Darwin"),
+                  # patch.dict snapshots and restores the whole mapping on
+                  # stop, so edits made after start() are undone too.
+                  mock.patch.dict(w.os.environ, env or {})):
+            p.start()
+            self.addCleanup(p.stop)
+        if not env:
+            w.os.environ.pop("PRISMA_PANEL_CONFIG", None)
+
+    def test_suffixed_app_dir_is_found_when_it_is_the_only_one(self):
+        w = self._wizard()
+        home, (three_p,) = self._fake_home("Claude-3p")
+        try:
+            self._with_home(w, home)
+            self.assertEqual(
+                w._panel_config_path(), three_p,
+                "only Claude-3p exists, so writing to Claude/ would land in a "
+                "file no app reads")
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_with_several_installs_the_most_recent_one_wins(self):
+        w = self._wizard()
+        home, (plain, three_p) = self._fake_home("Claude", "Claude-3p")
+        try:
+            os.utime(plain, (1_600_000_000, 1_600_000_000))
+            os.utime(three_p, (1_700_000_000, 1_700_000_000))
+            self._with_home(w, home)
+            self.assertEqual(w._panel_config_path(), three_p,
+                             "the recently-touched config is the app in use")
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_an_explicit_override_beats_the_guess(self):
+        """The heuristic can be wrong; there must be a way to say so."""
+        w = self._wizard()
+        home, _ = self._fake_home("Claude", "Claude-3p")
+        try:
+            chosen = os.path.join(home, "somewhere-else.json")
+            self._with_home(w, home, env={"PRISMA_PANEL_CONFIG": chosen})
+            self.assertEqual(w._panel_config_path(), chosen)
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_a_fresh_machine_still_gets_the_plain_path(self):
+        w = self._wizard()
+        home, _ = self._fake_home()
+        try:
+            self._with_home(w, home)
+            self.assertTrue(
+                w._panel_config_path().endswith(
+                    os.path.join("Claude", "claude_desktop_config.json")),
+                w._panel_config_path())
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
 
 class HostSuppliedNothing(unittest.TestCase):
     """0.8.8 -- the host enables the plugin without ever running the

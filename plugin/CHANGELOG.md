@@ -37,6 +37,14 @@ path. See the README for the full walkthrough.
 - **NEW:** the entry sets `PATH` explicitly, because the app does not give MCP
   servers a login shell's `PATH` and `uvx: command not found` was otherwise
   the first thing everyone hit.
+- **FIX (setup, high):** `prisma-sase-setup` wrote to the wrong file on any
+  machine whose app directory is not literally `Claude/`. Third-party and
+  enterprise builds use a suffix — `Claude-3p/` is the one seen in the field —
+  and the wizard hardcoded `Claude/`, so it reported success into a file the
+  running app never reads: credentials present, no tools, no error anywhere.
+  It now finds every `Claude*` config, writes to the most recently modified
+  one (the app in use), names the others it skipped, and takes
+  `PRISMA_PANEL_CONFIG=<path>` when the guess is wrong.
 - **FIX (diagnosis, high):** the plugin **stopped accusing correctly-installed
   users of a host bug.** 0.8.8 treated "enabled, but `settings.json` holds no
   `pluginConfigs` entry" as proof the enable dialog never ran — a sound

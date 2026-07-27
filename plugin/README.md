@@ -81,6 +81,19 @@ Then, in order:
    | `launching with <path>` | the interpreter that was chosen |
    | `FATAL: ...` | the exact cause of death (no Python ≥ 3.10, version floor, missing packages) |
 
+4. **Check you edited the config the app actually reads.** Not every build
+   keeps it in `Claude/`; third-party and enterprise distributions use a
+   suffixed directory such as `Claude-3p/`, and a machine can have several
+   side by side. The entry looks perfect and no tools appear, because the
+   running app never reads that file. To see which ones exist:
+   ```bash
+   ls -d ~/Library/Application\ Support/Claude*
+   ```
+   `prisma-sase-setup` picks the most recently modified one and says so when
+   there is more than one. Override it with
+   `PRISMA_PANEL_CONFIG=<path> prisma-sase-setup` if it guesses wrong.
+   (Linux: `~/.config/Claude*`; Windows: `%APPDATA%\Claude*`.)
+
 ## Getting the API key — a read-only service account
 
 The API key is a service account's **Client ID + Client Secret**, created in
