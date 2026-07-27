@@ -103,6 +103,7 @@ print(json.dumps({
     'cmd': w._quote(w._backend()[1]) if w._backend()[0] == 'dpapi' else '',
     'path': w._panel_path(),
     'config': w._panel_config_dirs()[0],
+    'uvxargs': ' '.join(w._uvx_args()),
 }))
 "@
 $g = & $py.Source -c $gen | ConvertFrom-Json
@@ -192,25 +193,30 @@ Check "git is reachable too (uvx needs it for the git+ ref)" {
 }
 
 Check "the server launches and answers --selfcheck" {
+    # Launched with the arguments the wizard itself would write, rather than a
+    # copy of them -- on ARM64 those include an x64 interpreter, and hardcoding
+    # the command here would test a launch nobody performs.
+    #
     # Needs the network: uvx resolves the git ref on every launch. A failure
     # here on an offline VM is the network, not the code.
     #
-    # The first run on a machine can take minutes rather than seconds. uv has to
-    # populate an empty cache, and on a platform with no prebuilt wheel for some
-    # transitive dependency it compiles that dependency from source -- which is
-    # the ARM64 story below. Later runs hit the cache and are quick.
+    # The first run on a machine can take minutes rather than seconds, because
+    # uv has to populate an empty cache. Later runs hit it and are quick.
     $saved = $env:PATH
     try {
         $env:PATH = $g.path
-        $out = RunCmd "uvx --from git+https://github.com/eric2q/prisma-sase-plugin@uvx-local-mcp prisma-sase-mcp --selfcheck"
+        # The branch under test, in place of the main this would ship pointing at.
+        # Not $args -- that is an automatic variable in PowerShell.
+        $uvxArgs = $g.uvxargs -replace 'prisma-sase-plugin ', 'prisma-sase-plugin@uvx-local-mcp '
+        $out = RunCmd "uvx $uvxArgs --selfcheck"
         if ($out -match "RESULT:") { return $true }
 
-        # Name the two failures that are about this machine rather than about
-        # the code, so neither gets mistaken for a defect in the server.
+        # Name the failure that is about this machine rather than about the
+        # code, so it does not get mistaken for a defect in the server.
         if ($out -match "(?i)cargo|rust|Microsoft Visual C\+\+|vcvars|error: linker") {
             return ("a transitive dependency had no prebuilt wheel for " +
                     "$env:PROCESSOR_ARCHITECTURE and the source build failed. " +
-                    "See the ARM64 note in plugin/README.md.`n$($out.Trim())")
+                    "See the Windows on ARM note in plugin/README.md.`n$($out.Trim())")
         }
         "no RESULT line:`n$($out.Trim())"
     } finally { $env:PATH = $saved }

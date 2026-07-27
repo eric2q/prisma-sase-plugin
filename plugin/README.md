@@ -287,35 +287,40 @@ administrators.
 
 #### Windows on ARM
 
-Expect the **first** launch to take several minutes, and possibly to fail.
+`prisma-sase-setup` handles this for you — the note is here for when you write
+the entry by hand, or want to know why its `args` differ from everyone else's.
 
 `cryptography` arrives as a transitive dependency (`fastmcp` → `mcp` →
 `pyjwt[crypto]`) and its authors publish no `win_arm64` wheel for the current
-version, so uv falls back to building it from source. That build needs a Rust
-toolchain and the MSVC C++ build tools; without them the launch fails with a
-`cargo`, `rustc` or linker error rather than anything about this plugin. If it
-does succeed, the result is cached and later launches are as fast as anywhere
-else.
+version. Under a native interpreter uv therefore builds it from source, which
+needs a Rust toolchain and the MSVC C++ build tools; without them the launch
+fails with a `cargo`, `rustc` or linker error that names nothing to do with
+this plugin.
 
-Two ways through, in order of preference:
+Running under an **x64** interpreter sidesteps it entirely: Windows on ARM
+emulates x64, the `win_amd64` wheels exist, nothing is compiled. On ARM64
+Windows the wizard asks uv for one by name, so the entry it writes reads:
 
-```powershell
-winget install Rustlang.Rustup Microsoft.VisualStudio.2022.BuildTools
+```json
+"args": ["--managed-python", "--python", "cpython-3.12-windows-x86_64",
+         "--from", "git+https://github.com/eric2q/prisma-sase-plugin",
+         "prisma-sase-mcp"]
 ```
 
-or point uv at an x64 interpreter instead — Windows on ARM emulates x64, and
-`win_amd64` wheels do exist, so nothing gets compiled. Installing x64 Python is
-not enough on its own; uv chooses an interpreter itself and will prefer the
-native one, so it has to be named:
+uv downloads and manages that interpreter itself, so no separate Python install
+is needed — and since uv publishes no ARM64 Windows build at all,
+`--managed-python` can only give you x64 here anyway.
 
-```powershell
-winget install Python.Python.3.12 --architecture x64
-uvx --python "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe" --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-mcp --selfcheck
-```
+Two things that look like fixes and are not. `winget install Python.Python.3.12
+--architecture x64` does nothing: winget matches on package ID, sees 3.12
+already installed, and stops. And installing x64 Python by any means is not
+sufficient on its own, because uv picks its own interpreter and prefers the
+native one unless told otherwise.
 
-If that gets you a `RESULT:` line, add the same `--python` argument to the
-`args` list in the Local MCP entry, before `--from`. Neither workaround is
-needed on Intel/AMD Windows.
+Staying native means supplying the build tools —
+`winget install Rustlang.Rustup Microsoft.VisualStudio.2022.BuildTools` — which
+works, but is a much longer road to the same place. None of this applies on
+Intel/AMD Windows.
 
 ## Cloud sessions: getting credentials in
 

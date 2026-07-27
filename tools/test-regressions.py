@@ -1036,6 +1036,56 @@ class CrossPlatform(unittest.TestCase):
         w = self._wizard("Windows")
         self.assertNotIn("-Key", w._dpapi_store_script(r"C:\x"))
 
+    # -- ARM64 Windows: cryptography has no win_arm64 wheel ------------------
+
+    def _arch(self, w, machine):
+        import unittest.mock as mock
+        p = mock.patch.object(w.platform, "machine", lambda: machine)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_arm64_windows_asks_for_an_x64_interpreter(self):
+        """Verified on a real ARM64 Windows VM: the native interpreter sends uv
+        off to build cryptography==49.0.0 from source, because its authors
+        publish no win_arm64 wheel for the current version. That needs Rust and
+        MSVC, and the failure names cargo rather than anything to do with this
+        plugin. x64 is emulated on ARM Windows and its wheels exist."""
+        w = self._wizard("Windows")
+        self._arch(w, "ARM64")
+        args = w._uvx_args()
+        self.assertIn("--python", args)
+        self.assertEqual("cpython-3.12-windows-x86_64",
+                         args[args.index("--python") + 1])
+
+    def test_the_interpreter_is_pinned_only_where_it_is_needed(self):
+        """Choosing uv's interpreter for it is a liberty, justified only by the
+        missing wheel. Everywhere else uv should decide."""
+        for osname, machine in (("Windows", "AMD64"), ("Darwin", "arm64"),
+                                ("Darwin", "x86_64"), ("Linux", "aarch64"),
+                                ("Linux", "x86_64")):
+            with self.subTest(os=osname, machine=machine):
+                w = self._wizard(osname)
+                self._arch(w, machine)
+                self.assertEqual(["--from", w.GIT_URL, "prisma-sase-mcp"],
+                                 w._uvx_args())
+
+    def test_the_from_argument_still_comes_last(self):
+        """uvx reads everything before --from as its own. A flag appended after
+        the package would be passed to the server instead, which would take it
+        for an unknown option."""
+        w = self._wizard("Windows")
+        self._arch(w, "ARM64")
+        args = w._uvx_args()
+        self.assertEqual(["--from", w.GIT_URL, "prisma-sase-mcp"], args[-3:])
+
+    def test_the_panel_entry_carries_the_interpreter_through(self):
+        """_uvx_args being right is no use if the entry does not use it."""
+        w = self._wizard("Windows")
+        self._arch(w, "ARM64")
+        self._fake_powershell(w)
+        entry = w._panel_entry("cid", "tsg", "de", "cmd")
+        self.assertIn("--managed-python", entry["args"])
+
 
 class HostSuppliedNothing(unittest.TestCase):
     """0.8.8 -- the host enables the plugin without ever running the

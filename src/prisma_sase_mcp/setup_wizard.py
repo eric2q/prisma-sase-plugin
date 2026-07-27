@@ -427,6 +427,29 @@ def _panel_path():
     return sep.join(ordered)
 
 
+def _uvx_args():
+    """The arguments for uvx, with an interpreter named only where it matters.
+
+    Normally uv picks the interpreter and picking it for uv would be rude. ARM64
+    Windows is the exception. `cryptography` arrives transitively (fastmcp ->
+    mcp -> pyjwt[crypto]) and publishes no win_arm64 wheel for the current
+    version, so a native interpreter sends uv off to build it from source --
+    which needs Rust and MSVC, and without them the launch dies with a cargo
+    error that says nothing about this plugin.
+
+    An x64 interpreter avoids all of it: Windows on ARM emulates x64, the
+    win_amd64 wheels exist, nothing is compiled. uv publishes no ARM64 Windows
+    build in the first place, so asking for a managed Python here can only
+    return x64 anyway -- naming it just makes that explicit instead of leaving
+    it to whatever happens to be on PATH.
+    """
+    args = []
+    if (platform.system() == "Windows"
+            and platform.machine().lower() in ("arm64", "aarch64")):
+        args += ["--managed-python", "--python", "cpython-3.12-windows-x86_64"]
+    return args + ["--from", GIT_URL, "prisma-sase-mcp"]
+
+
 def _panel_entry(client_id, tsg_id, region, secret_cmd):
     """The block the user pastes -- or that we write for them."""
     env = {
@@ -441,7 +464,7 @@ def _panel_entry(client_id, tsg_id, region, secret_cmd):
         env["PRISMA_CLIENT_SECRET"] = "<paste your client secret here>"
     return {
         "command": _uvx_path(),
-        "args": ["--from", GIT_URL, "prisma-sase-mcp"],
+        "args": _uvx_args(),
         "env": env,
     }
 

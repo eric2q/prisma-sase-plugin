@@ -60,14 +60,19 @@ path. See the README for the full walkthrough.
   secret round-trips through DPAPI, that the command survives cmd.exe
   verbatim, that it works with no inherited `PATH`, and that execution policy
   does not block it. All confirmed passing on a real Windows machine.
-- **DOCS (Windows on ARM):** the first launch there can take minutes or fail
-  outright, and the error names `cargo` or a linker rather than anything to do
-  with this plugin. `cryptography` comes in transitively (`fastmcp` → `mcp` →
-  `pyjwt[crypto]`) and has no published `win_arm64` wheel for the current
-  version, so uv builds it from source. The README now says so and gives two
-  ways through: install the Rust and MSVC build tools, or point `uvx --python`
-  at an x64 interpreter and let the emulated `win_amd64` wheels be used
-  instead. Unaffected on Intel/AMD Windows.
+- **FIX (Windows on ARM):** the server could not launch there at all. Found on
+  a real ARM64 VM, where `--selfcheck` went off building `cryptography==49.0.0`
+  from source: it arrives transitively (`fastmcp` → `mcp` → `pyjwt[crypto]`)
+  and its authors publish no `win_arm64` wheel for the current version, so a
+  native interpreter has nothing to install and must compile — which needs Rust
+  and MSVC, and without them dies citing `cargo`, naming nothing to do with
+  this plugin. The wizard now asks uv for an x64 interpreter on ARM64 Windows
+  (`--managed-python --python cpython-3.12-windows-x86_64`). Windows on ARM
+  emulates x64, the `win_amd64` wheels exist, and nothing is compiled. uv
+  publishes no ARM64 Windows build in the first place, so this only makes
+  explicit what it would have to do regardless. Other platforms are untouched —
+  choosing uv's interpreter for it is a liberty, and the missing wheel is the
+  whole justification.
 - **NEW:** the server auto-updates. No pinned ref means every launch gets the
   current `main`. Need a frozen target for a customer demo? Pin one:
   `git+https://github.com/eric2q/prisma-sase-plugin@v0.9.0`.
