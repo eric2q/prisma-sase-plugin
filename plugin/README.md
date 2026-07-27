@@ -285,6 +285,38 @@ Credentials go in the same places. `chmod 600` doesn't apply on Windows; the
 env file sits in your user profile, which NTFS already restricts to you plus
 administrators.
 
+#### Windows on ARM
+
+Expect the **first** launch to take several minutes, and possibly to fail.
+
+`cryptography` arrives as a transitive dependency (`fastmcp` → `mcp` →
+`pyjwt[crypto]`) and its authors publish no `win_arm64` wheel for the current
+version, so uv falls back to building it from source. That build needs a Rust
+toolchain and the MSVC C++ build tools; without them the launch fails with a
+`cargo`, `rustc` or linker error rather than anything about this plugin. If it
+does succeed, the result is cached and later launches are as fast as anywhere
+else.
+
+Two ways through, in order of preference:
+
+```powershell
+winget install Rustlang.Rustup Microsoft.VisualStudio.2022.BuildTools
+```
+
+or point uv at an x64 interpreter instead — Windows on ARM emulates x64, and
+`win_amd64` wheels do exist, so nothing gets compiled. Installing x64 Python is
+not enough on its own; uv chooses an interpreter itself and will prefer the
+native one, so it has to be named:
+
+```powershell
+winget install Python.Python.3.12 --architecture x64
+uvx --python "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe" --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-mcp --selfcheck
+```
+
+If that gets you a `RESULT:` line, add the same `--python` argument to the
+`args` list in the Local MCP entry, before `--from`. Neither workaround is
+needed on Intel/AMD Windows.
+
 ## Cloud sessions: getting credentials in
 
 Remote/cloud sessions (Cowork web, remote containers) run in a sandbox that

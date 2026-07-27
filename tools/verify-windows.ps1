@@ -58,7 +58,26 @@ $secret = "test-secret-" + [guid]::NewGuid().ToString("N").Substring(0, 12)
 # path does not depend on inheriting one.
 $cmdExe = Join-Path $env:SystemRoot "System32\cmd.exe"
 
+function RunCmd($commandLine) {
+    <#
+        Run a command line through cmd.exe and return everything it printed.
+
+        The $ErrorActionPreference='Stop' at the top of this script is right for
+        the checks themselves but wrong here. Windows PowerShell 5.1 turns a
+        native command's stderr into ErrorRecords when it is redirected with
+        2>&1, and under 'Stop' the first one throws. Plenty of well-behaved
+        tools write progress to stderr -- uv announces every package it builds
+        there -- so without this a check aborts on a status line and reports it
+        as though it were the failure.
+    #>
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { (& $cmdExe /c $commandLine 2>&1 | Out-String) }
+    finally { $ErrorActionPreference = $saved }
+}
+
 Write-Host "  python : $($py.Source)"
+Write-Host "  arch   : $env:PROCESSOR_ARCHITECTURE"
 Write-Host "  repo   : $repo"
 Write-Host "  temp   : $tempBase  (throwaway LOCALAPPDATA)"
 Write-Host ""
@@ -122,7 +141,7 @@ Check "fetch script returns exactly what was stored" {
 Check "the command survives cmd.exe verbatim" {
     # The real launch path: config.py runs PRISMA_SECRET_CMD with shell=True,
     # which on Windows is cmd.exe. This is the check the macOS tests cannot do.
-    $got = (& $cmdExe /c $g.cmd 2>&1 | Out-String).Trim()
+    $got = (RunCmd $g.cmd).Trim()
     if ($got -eq $secret) { $true }
     else { "cmd.exe mangled it -- got '$got'" }
 }
@@ -134,7 +153,7 @@ Check "it works with no PATH inherited" {
     $saved = $env:PATH
     try {
         $env:PATH = ""
-        $got = (& $cmdExe /c $g.cmd 2>&1 | Out-String).Trim()
+        $got = (RunCmd $g.cmd).Trim()
         if ($got -eq $secret) { $true }
         else { "failed with an empty PATH -- got '$got'" }
     } finally { $env:PATH = $saved }
@@ -147,7 +166,7 @@ Check "a restrictive execution policy does not block it" {
     # survive. An enterprise GPO setting AllSigned is the case being modelled.
     $strict = $g.cmd -replace '(?i)-NoProfile', '-ExecutionPolicy Restricted -NoProfile'
     if ($strict -eq $g.cmd) { return "could not inject a policy flag" }
-    $got = (& $cmdExe /c $strict 2>&1 | Out-String).Trim()
+    $got = (RunCmd $strict).Trim()
     if ($got -eq $secret) { $true }
     else { "blocked under Restricted -- got '$got'" }
 }
@@ -156,7 +175,7 @@ Check "uvx is reachable via the PATH the wizard emits" {
     $saved = $env:PATH
     try {
         $env:PATH = $g.path
-        $v = (& $cmdExe /c "uvx --version" 2>&1 | Out-String).Trim()
+        $v = (RunCmd "uvx --version").Trim()
         if ($LASTEXITCODE -eq 0) { $true }
         else { "uvx not found on the emitted PATH: $v" }
     } finally { $env:PATH = $saved }
@@ -166,7 +185,7 @@ Check "git is reachable too (uvx needs it for the git+ ref)" {
     $saved = $env:PATH
     try {
         $env:PATH = $g.path
-        $v = (& $cmdExe /c "git --version" 2>&1 | Out-String).Trim()
+        $v = (RunCmd "git --version").Trim()
         if ($LASTEXITCODE -eq 0) { $true }
         else { "git not on the emitted PATH -- uvx cannot resolve the ref" }
     } finally { $env:PATH = $saved }
@@ -175,12 +194,25 @@ Check "git is reachable too (uvx needs it for the git+ ref)" {
 Check "the server launches and answers --selfcheck" {
     # Needs the network: uvx resolves the git ref on every launch. A failure
     # here on an offline VM is the network, not the code.
+    #
+    # The first run on a machine can take minutes rather than seconds. uv has to
+    # populate an empty cache, and on a platform with no prebuilt wheel for some
+    # transitive dependency it compiles that dependency from source -- which is
+    # the ARM64 story below. Later runs hit the cache and are quick.
     $saved = $env:PATH
     try {
         $env:PATH = $g.path
-        $out = (& $cmdExe /c "uvx --from git+https://github.com/eric2q/prisma-sase-plugin@uvx-local-mcp prisma-sase-mcp --selfcheck" 2>&1 | Out-String)
-        if ($out -match "RESULT:") { $true }
-        else { "no RESULT line:`n$($out.Trim())" }
+        $out = RunCmd "uvx --from git+https://github.com/eric2q/prisma-sase-plugin@uvx-local-mcp prisma-sase-mcp --selfcheck"
+        if ($out -match "RESULT:") { return $true }
+
+        # Name the two failures that are about this machine rather than about
+        # the code, so neither gets mistaken for a defect in the server.
+        if ($out -match "(?i)cargo|rust|Microsoft Visual C\+\+|vcvars|error: linker") {
+            return ("a transitive dependency had no prebuilt wheel for " +
+                    "$env:PROCESSOR_ARCHITECTURE and the source build failed. " +
+                    "See the ARM64 note in plugin/README.md.`n$($out.Trim())")
+        }
+        "no RESULT line:`n$($out.Trim())"
     } finally { $env:PATH = $saved }
 }
 

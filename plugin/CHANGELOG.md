@@ -59,7 +59,15 @@ path. See the README for the full walkthrough.
   This script runs on Windows and checks the parts that shape cannot: that the
   secret round-trips through DPAPI, that the command survives cmd.exe
   verbatim, that it works with no inherited `PATH`, and that execution policy
-  does not block it.
+  does not block it. All confirmed passing on a real Windows machine.
+- **DOCS (Windows on ARM):** the first launch there can take minutes or fail
+  outright, and the error names `cargo` or a linker rather than anything to do
+  with this plugin. `cryptography` comes in transitively (`fastmcp` → `mcp` →
+  `pyjwt[crypto]`) and has no published `win_arm64` wheel for the current
+  version, so uv builds it from source. The README now says so and gives two
+  ways through: install the Rust and MSVC build tools, or point `uvx --python`
+  at an x64 interpreter and let the emulated `win_amd64` wheels be used
+  instead. Unaffected on Intel/AMD Windows.
 - **NEW:** the server auto-updates. No pinned ref means every launch gets the
   current `main`. Need a frozen target for a customer demo? Pin one:
   `git+https://github.com/eric2q/prisma-sase-plugin@v0.9.0`.
