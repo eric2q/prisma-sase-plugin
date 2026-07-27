@@ -35,28 +35,22 @@ Skill(工具決策樹、判讀閾值、診斷 runbook、週報模板)。安裝�
 
 ## 內容物
 
-刻意拆成兩半、分開安裝:
+兩個部分,分開安裝:
 
-| 這一半 | 是什麼 | 怎麼裝 | 怎麼更新 |
+| 部分 | 是什麼 | 怎麼裝 | 怎麼更新 |
 |---|---|---|---|
-| **MCP server** | 6 個唯讀查詢工具 | 一筆執行 `uvx` 的 **Local MCP server** 設定 | **自己更新** —— 每次啟動 app,uvx 都會重新解析本 repo |
+| **MCP server** | 6 個唯讀查詢工具 | 一筆執行 `uvx` 的 **Local MCP server** 設定 | 自動,每次啟動 app 時 |
 | **`prisma-sase-ops` Skill** | 工具決策樹、判讀閾值、診斷 runbook、週報模板 | plugin marketplace | `/plugin marketplace update prisma-sase` |
 
-在 0.9.0 之前這兩半是同一個 plugin。拆開的原因是 plugin 快取會**釘住版本**:
-掛在 plugin 裡的 server 只有在使用者手動更新時才會變,而 uvx 那筆設定則是每次
-app 啟動就抓一次現在的 `main`。會去打即時 API、必須保持最新的是 server;
-Skill 是文字,慢一個版本不會傷到誰。
+Server 單獨就能運作。Skill 為選用,可以讓 Claude 更會挑工具、更會判讀回傳的
+數字。
 
-Server 單獨就能用 —— Skill 只是讓 Claude 更會挑工具、更會判讀回傳的數字。
-
-想知道這 6 個工具對應到 PANW 完整 API 版圖的哪個位置(以及唯讀的 Phase 2
-還能加什麼)?見
+這 6 個工具對應到 PANW 完整 API 版圖的哪個位置、唯讀的 Phase 2 還能加什麼:
 [Prisma SASE API catalog](plugin/skills/prisma-sase-ops/references/api-catalog.md)(英文)。
 
 ## 1. 事前需求
 
-**先把 `uv` 跟 `git` 都裝好 —— 兩個都要。** 然後跑一道確認,確定自己準備好了。
-在進安裝章節之前做完,不要等到中途出錯才回頭查。
+開始之前,請先安裝 **`uv` 與 `git`,兩個都要**。
 
 **macOS**
 
@@ -83,42 +77,41 @@ winget install Git.Git
 uvx --version && git --version
 ```
 
-印出兩行版本號就代表齊了。其他都不用裝 —— 尤其**不用裝 Python**:系統的版本
-太舊時 uv 會自己下載一個合用的,macOS 通常正是這種情況(內建的
-`/usr/bin/python3` 常常是 3.9,而 `fastmcp` 需要 3.10)。
+印出兩行版本號就代表可以開始了。**不需要另外安裝 Python** —— 系統版本太舊時
+uv 會自備直譯器(macOS 內建為 3.9,`fastmcp` 需要 3.10)。
 
 <details>
 <summary>各自為什麼需要,以及缺少時會看到什麼</summary>
 
 | 需要 | 為什麼 | 缺少時長什麼樣 |
 |---|---|---|
-| **uv**(提供 `uvx`) | 所有平台底下每一道指令的啟動器,也負責提供 Python 直譯器 | 終端機出現 `uvx: command not found` —— 若 app 那邊已經設定好了,則會變成 MCP server 無聲無息起不來 |
-| **git** | 每一道指令都是 `--from git+https://…`,uv 得叫 git 去解 ref、抓原始碼 | uv 停在 *"Git executable not found"*。這是**安裝期**才需要的;版本進了快取之後,啟動就不會再叫 git |
-| **能連 GitHub 與 PyPI 的網路** | uvx 第一次啟動時抓本 repo 與依賴套件,而且**每一次**啟動都會重新確認 ref。公司 proxy 環境:設 `HTTPS_PROXY=http://proxy:port` | 一行 `Updating … (HEAD)` 之後接 *"Failed to resolve"* / *"Git operation failed"*。見[離線使用](#離線使用) —— 光靠熱快取**救不了** |
-| **SCM 唯讀 service account** | 工具拿去認證的 Client ID / Secret / TSG | 那是[第 2 步](#2-產生-api-key) —— 跑第 1 步時還用不到 |
+| **uv**(提供 `uvx`) | 所有平台底下每一道指令的啟動器,也負責提供 Python 直譯器 | 終端機出現 `uvx: command not found`;若 app 那邊已經設定好了,則是 MCP server 無聲無息起不來 |
+| **git** | 每一道指令都是 `--from git+https://…`,uv 得叫 git 去解 ref、抓原始碼 | uv 停在 *"Git executable not found"*。**僅安裝期需要**,版本進了快取之後,啟動就不會再叫 git |
+| **能連 GitHub 與 PyPI 的網路** | uvx 第一次啟動時抓本 repo 與依賴套件,而且**每一次**啟動都會重新確認 ref。公司 proxy 環境請設 `HTTPS_PROXY=http://proxy:port` | 一行 `Updating … (HEAD)` 之後接 *"Failed to resolve"* / *"Git operation failed"*。熱快取無法避免,見[離線使用](#離線使用) |
+| **SCM 唯讀 service account** | 工具拿去認證的 Client ID / Secret / TSG | 那是[第 2 步](#2-產生-api-key),第 1 步用不到 |
 
 uv 的完整安裝選項:[docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/)。
 macOS 若不想用 Homebrew,`xcode-select --install` 也會裝上 git。
 
 </details>
 
-還沒有 Prisma 租戶?一切都能離線試用:設 `PRISMA_MOCK=1`,所有工具會用
-擬真範例資料回答 —— 不需要憑證、不需要網路。
+**還沒有 Prisma 租戶?** 設 `PRISMA_MOCK=1`,所有工具會用擬真範例資料回答,
+不需要憑證、也不需要網路。
 
-要在沒網路的地方 demo?這個 server 每次啟動都會重新解析 git ref,所以那需要
-多一個步驟 —— 見「更新」底下的[離線使用](#離線使用)。
+**要在沒有網路的環境執行**需要多一個步驟,因為 server 每次啟動都會重新解析
+git ref。見「更新」底下的[離線使用](#離線使用)。
 
 ## 2. 產生 API Key
 
 Prisma SASE 的「API Key」其實是 **service account 的 Client ID + Client
-Secret**,在 Strata Cloud Manager 裡建立。四步圖解在
-[後面](#api-key-圖解建立唯讀-service-account) —— 現在就去做,並把兩個值留在
-手邊,因為第 3 步會跟你要,而 Secret **只在建立當下顯示一次**。
+Secret**,在 Strata Cloud Manager 裡建立。請依照[後面的四步圖解](#api-key-圖解建立唯讀-service-account)
+建立,並把兩個值留在手邊 —— 第 3 步會用到,而 Client Secret **只在建立當下
+顯示一次**。
 
 ## 3. 執行引導式設定
 
-這一行指令會把安裝**跟**憑證一次做完。它會逐項說明並詢問那四個值,把 Client
-Secret 存進作業系統的 keychain,然後幫你寫好 Local MCP servers 的設定:
+一行指令即可安裝 server 並寫入憑證。它會逐項說明並詢問那四個值,把 Client
+Secret 存進作業系統的 keychain,然後寫好 Local MCP servers 的設定:
 
 ```bash
 uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
@@ -131,9 +124,9 @@ uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
 > 只有這一條指令需要你自己加。細節見
 > [Windows on ARM](plugin/README.md#windows-on-arm)。
 
-寫入前它會先把整段設定顯示給你、並徵求同意;如果你比較想自己貼到
-**Settings → Extensions → Local MCP servers**,加 `--print` 就只印不寫。
-它產生的設定長這樣:
+寫入前它會先把整段設定顯示出來並徵求同意。若想自己貼到
+**Settings → Extensions → Local MCP servers**,加上 `--print` 就只印出 JSON、
+不寫入任何檔案。它產生的設定如下:
 
 ```json
 {
@@ -150,19 +143,17 @@ uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
 }
 ```
 
-請注意裡面**沒有** secret 本身。`PRISMA_SECRET_CMD` 是在啟動時才去 keychain
-把它取出來。面板上的值是以**明文**存在 `claude_desktop_config.json`,而這個檔案
-會跟著 Time Machine、以及任何會複製家目錄的備份一起被帶走 —— 所以 secret
-不放進去。
+裡面**沒有** secret 本身,`PRISMA_SECRET_CMD` 會在啟動時去 keychain 取出。
+面板上的值是以**明文**存在 `claude_desktop_config.json`,而這個檔案會跟著
+Time Machine 以及任何會複製家目錄的備份一起被帶走,所以 secret 不放進去。
 
 **接著完全重啟 Claude 應用程式**(macOS 按 ⌘Q —— 只關視窗不會重新啟動 MCP
-server),然後就能開始問你的租戶狀況了。到這一步工具已經會動;底下的 Skill
-是讓 Claude **用得好**的東西。
+server),然後就能開始問你的租戶狀況。工具到這裡已經可以使用。
 
 ## 4. 裝上 Skill(選用)
 
-工具本身就能回答問題。Skill 加上去的是圍繞它們的判斷力 —— 什麼情況該用哪個
-工具、數字代表什麼意思、診斷 runbook 與週報模板:
+Skill 補上的是圍繞這些工具的判斷力 —— 什麼情況該用哪個工具、數字代表什麼
+意思、診斷 runbook 與週報模板:
 
 *Claude Desktop / Cowork:* **Settings → Plugins → Add marketplace → Add from a
 repository** → 輸入 `eric2q/prisma-sase-plugin` → 安裝 **prisma-sase**。
@@ -228,14 +219,14 @@ scope 只綁必要租戶。
 
 <img src="plugin/docs/images/scm-4-assign-roles.png" alt="Assign Roles:All Apps & Services + View Only Administrator → Submit" width="640">
 
-**提供步驟 3 記下的值** —— 三條支援路徑,由好到次:
+**提供步驟 3 記下的值** —— 三種支援方式,建議優先順序如下:
 
-- **`prisma-sase-setup`(建議用這條):** 就是[第 3 步](#3-執行引導式設定)的引導式設定。
+- **`prisma-sase-setup`(建議):** 即[第 3 步](#3-執行引導式設定)的引導式設定。
   Secret 進作業系統 keychain,另外三個值進 Local MCP 設定,再加一條啟動時去
   取 secret 的 `PRISMA_SECRET_CMD`。不會有任何機密被寫進檔案。
-- **自己填 Local MCP servers 面板:** 同樣那四個值,當成環境變數填。簡單,
-  而且多數 MCP server 都是這樣做 —— 但 `PRISMA_CLIENT_SECRET` 就會以明文
-  躺在 `claude_desktop_config.json` 裡。自己的實驗租戶無妨;客戶的租戶請三思。
+- **自己填 Local MCP servers 面板:** 同樣那四個值,當成環境變數填。請注意
+  `PRISMA_CLIENT_SECRET` 會以明文存在 `claude_desktop_config.json` 裡 ——
+  自己的實驗租戶可以接受,客戶的租戶則不建議。
 - **憑證檔**(`~/.prisma-sase.env`,KEY=VALUE、不需引號;下例以星號遮罩)——
   給 venv 備援路徑、雲端 session 與 CI 用:
 
@@ -267,18 +258,18 @@ secret 貼到任何地方;雲端 session 用暫時工作副本、用完即刪
 
 ## 如果 SASE 工具沒出現
 
-依序試這三招:
+依序嘗試以下三項:
 
-1. **自己在終端機把 server 跑起來** —— 它會印出到底找到了什麼,而且不會印出
-   任何憑證值:
+1. **自己在終端機把 server 跑起來** —— 它會印出偵測到的環境,且不會印出任何
+   憑證值:
 
    ```bash
    uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-mcp --selfcheck
    ```
 
-   最常見的原因是 `PATH` 上找不到 `uvx`:app 不會把登入 shell 的 `PATH` 傳給
-   MCP server,這也正是產生出來的設定要明確帶一份 `PATH` 的理由。如果
-   `which uvx` 印出來的位置不在那份清單裡,請把它加進去。
+   最常見的原因是 `PATH` 上找不到 `uvx`。app 不會把登入 shell 的 `PATH` 傳給
+   MCP server,這也是產生出來的設定會明確帶一份 `PATH` 的原因。如果
+   `which uvx` 印出來的目錄不在那份清單裡,請把它加進去。
 2. **請 Claude 執行 `prisma_sase_setup_required`。** 真正的 server 起不來
    時,會由一個零依賴的替補 server 頂上,這個工具會回傳診斷結果與可直接
    複製的修復指令。
@@ -291,12 +282,12 @@ secret 貼到任何地方;雲端 session 用暫時工作副本、用完即刪
 
 ## 更新
 
-**Server 會自己更新。** Local MCP 設定跑的是沒有釘任何 git ref 的
+**Server 會自動更新。** Local MCP 設定跑的是沒有釘任何 git ref 的
 `uvx --from git+…`,所以每次 app 啟動都會重新解析本 repo 的 `main`,commit
-有變就重新建置。維護者推送 → 你重開 app → 你就是最新版,不必按任何按鈕。
-(想確認自己跑的是哪一版,問一下 SASE 狀態即可 —— 回應裡會帶 `plugin_version`。)
+有變就重新建置,重開 app 即為最新版。要確認目前版本,問一下 SASE 狀態即可,
+回應裡會帶 `plugin_version`。
 
-**Skill 不會。** plugin 是按版本快取的,只有你說了才會動:
+**Skill 不會。** plugin 是按版本快取的,需要手動更新:
 
 ```
 /plugin marketplace update prisma-sase
@@ -306,42 +297,41 @@ Desktop 則是 **Settings → Plugins →(該 marketplace)Update**。版本由
 `.claude-plugin/marketplace.json` 的 `version` 欄位釘住 —— 該欄位變更時使用者
 才會看到更新(見 [`PUBLISHING.md`](PUBLISHING.md))。
 
-**每一版改了什麼** —— 修了哪些 bug、新增哪些功能、行為有什麼變化 —— 都逐版
-記錄在 [`plugin/CHANGELOG.md`](plugin/CHANGELOG.md)(條目標記
-`FIX` / `NEW` / `CHG`,英文)。
+**每一版的變更** —— 修正、新功能、行為調整 —— 逐版記錄在
+[`plugin/CHANGELOG.md`](plugin/CHANGELOG.md)(條目標記 `FIX` / `NEW` / `CHG`,
+英文)。
 
-**需要固定版本的話。** 在 `--from` 的 URL 後面加上 git ref,自動更新就停在
-那裡:`git+https://github.com/eric2q/prisma-sase-plugin@v0.9.2`。要對客戶
-demo、不希望腳下的東西自己移動時很有用。
+**固定版本。** 在 `--from` 的 URL 後面加上 git ref,自動更新就會停在該版本:
+`git+https://github.com/eric2q/prisma-sase-plugin@v0.9.2`。適合不希望版本在
+客戶 demo 期間變動的情況。
 
 ### 離線使用
 
-自動更新跟「沒網路也能跑」其實是同一個取捨的兩面。這個 server **每次啟動都會
-重新解析 git ref** —— 更新之所以自動就是靠這個 —— 代價是預設情況下它**每次
-啟動**都需要網路,不是只有第一次安裝而已。熱快取不會改變這件事。
+由於 server 每次啟動都會重新解析 git ref,沒有釘版本的設定**每次啟動**都需要
+網路,而不只是第一次安裝。熱快取無法避免這一點。
 
-如果你要在飯店 Wi-Fi、飛機上、或會擋 GitHub 的網路裡 demo,請釘一個**完整的
-40 字元 commit SHA**:
+要在沒有網路的環境執行 —— 例如飛機上或會阻擋 GitHub 的網路 —— 請釘一個
+**完整的 40 字元 commit SHA**:
 
 ```
 git+https://github.com/eric2q/prisma-sase-plugin@e666ab410338855b4e03044c7f596e6654645f7e
 ```
 
-只有完整 SHA 有用。**釘 tag 是不夠的** —— git tag 是可以被移動的,所以 uv
-仍然會連去遠端確認,`@v0.9.2` 在離線時的失敗方式跟沒釘完全一樣。趁還有網路
-時先把快取暖起來,之後那條釘死的設定就能在完全沒有連線的情況下啟動。
+**釘 tag 是不夠的。** git tag 可以被移動,所以 uv 仍然會連去遠端確認,
+`@v0.9.2` 在離線時的失敗方式與沒釘版本完全相同;只有完整 SHA 能讓 uv 信任
+快取。趁有網路時先把快取建立起來,之後即可在完全離線的狀態下啟動。
 
 ## 關於託管方式
 
-本 repository 是**公開**的 —— `uvx` 匿名就能 clone,任何人不需 GitHub 認證
-即可加入 marketplace,兩條更新路徑都直接可用。
+本 repository 是**公開**的 —— `uvx` 匿名即可 clone,加入 marketplace 也不需
+GitHub 認證,兩條更新路徑都直接可用。
 
-如果你 fork 之後改以**私有** repo 託管:`uvx` 會走你的 git credential helper,
-所以 `gh auth setup-git`(或用 `git+ssh://git@github.com/...` 這種 SSH remote
-搭配已載入金鑰的 `ssh-agent`)對 server 來說就夠了。Skill 這邊,手動加入 /
-更新走的是同一組認證,但私有 repo 走 HTTPS 的背景自動更新在設計上有限制 ——
-請設定 `CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1`,讓背景更新失敗時
-保留現有工作副本。
+若 fork 之後改以**私有** repo 託管:`uvx` 會走你的 git credential helper,
+因此 `gh auth setup-git`(或使用 `git+ssh://git@github.com/...` 這類 SSH
+remote 搭配已載入金鑰的 `ssh-agent`)即可滿足 server 的需求。Skill 這邊,
+手動加入與更新走的是同一組認證,但私有 repo 經 HTTPS 的背景自動更新在設計上
+有其限制 —— 請設定 `CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1`,讓
+背景更新失敗時保留現有工作副本。
 
 ## Repo 結構
 
@@ -350,7 +340,7 @@ src/prisma_sase_mcp/              # MCP server —— uvx 建置與執行的就�
 src/prisma_sase_mcp/setup_wizard.py   # `prisma-sase-setup` 引導式安裝程式
 src/prisma_sase_mcp/install.sh    # 沒有 uv 的環境用的 venv 備援
 pyproject.toml                    # 進入點:prisma-sase-mcp、prisma-sase-setup
-plugin/                           # 只放 Skill,別無他物
+plugin/                           # 只放 Skill
 plugin/CHANGELOG.md               # 版本歷史:每一版的 bug 修正與新功能
 .claude-plugin/marketplace.json   # 目錄:一個項目,就是 Skill
 tools/build-standalone.py         # 選用:建置離線 .plugin 檔(供「Upload from file」安裝)
