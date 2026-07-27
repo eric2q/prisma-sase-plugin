@@ -341,22 +341,44 @@ def _panel_config_path():
     return os.path.join(_panel_config_dirs()[0], "claude_desktop_config.json")
 
 
+def _flavour(path):
+    """Which Claude build a config belongs to, from its directory name.
+
+    A "-3p" suffix means the custom-gateway build; the unsuffixed directory is
+    the subscription one. Both are legitimate installs and a machine can have
+    both, so this is not a case of one being right -- it is the fact the user
+    needs in order to answer which of the two they want configured. Without
+    it the prompt lists two indistinguishable paths.
+    """
+    parent = os.path.basename(os.path.dirname(path))
+    if parent.endswith("-3p"):
+        return "custom gateway"
+    if parent == "Claude":
+        return "subscription"
+    return parent
+
+
 def _describe_config(path):
     """A one-line hint of what lives in a config, to tell two apart.
 
     Server names only -- never a value. A config that will not parse is worth
     saying so about: it is the one _write_panel_config will refuse.
+
+    The build comes first because it is the part that decides the answer. Two
+    fresh installs both hold zero servers, so on the machine this matters most
+    the server list distinguishes nothing at all.
     """
     try:
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
     except Exception:
-        return "unreadable / not valid JSON"
+        return "%s -- unreadable / not valid JSON" % _flavour(path)
     names = list((data.get("mcpServers") or {}).keys())
     if not names:
-        return "no MCP servers yet"
+        return "%s -- no MCP servers yet" % _flavour(path)
     shown = ", ".join(names[:4])
-    return "servers: %s%s" % (shown, ", ..." if len(names) > 4 else "")
+    return "%s -- servers: %s%s" % (_flavour(path), shown,
+                                    ", ..." if len(names) > 4 else "")
 
 
 def _choose_panel_config():
@@ -381,15 +403,21 @@ def _choose_panel_config():
         return existing[0]
 
     print("")
-    print("  More than one Claude config exists on this machine.")
-    print("  Only the app you actually run reads its own file -- writing to")
-    print("  the wrong one looks like it worked and produces no tools.")
+    print("  More than one Claude build is installed on this machine.")
+    print("  Each reads only its own config -- writing to the other one looks")
+    print("  like it worked and produces no tools.")
     print("")
     for i, p in enumerate(existing, 1):
         print("    %d) %s" % (i, p))
         print("       %s" % _describe_config(p))
     print("")
-    print("  (1 was modified most recently, so it is usually the one in use.)")
+    # Not "the most recent is usually the one in use". Both builds are real
+    # installs -- "-3p" is the custom-gateway one, unsuffixed is subscription
+    # -- and which to configure is a choice about which you work in, not
+    # something a timestamp can answer. Ordering still puts the recently
+    # touched one first; that is a tiebreak, not a recommendation.
+    print("  Pick the build you actually use. Both are ordinary installs;")
+    print("  you can re-run this later for the other one.")
 
     while True:
         try:

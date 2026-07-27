@@ -818,6 +818,58 @@ class SetupWizard(unittest.TestCase):
         finally:
             shutil.rmtree(home, ignore_errors=True)
 
+    def test_the_listing_says_which_build_each_config_belongs_to(self):
+        """The suffix is product knowledge, not a naming quirk: "-3p" is the
+        custom-gateway build and the unsuffixed directory is the subscription
+        one. Both are ordinary installs, so neither is "the wrong one" -- the
+        user picks the build they work in.
+
+        Which makes the build the one fact that decides the answer, and it
+        was missing. The listing described configs by their MCP servers, and
+        two fresh installs both hold none: the prompt offered two paths that
+        differed only in a directory name, on exactly the machine where
+        getting it right matters.
+        """
+        w = self._wizard()
+        home, (plain, three_p) = self._fake_home("Claude", "Claude-3p")
+        try:
+            self._with_home(w, home)
+            self.assertIn("subscription", w._describe_config(plain))
+            self.assertIn("custom gateway", w._describe_config(three_p))
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_the_build_is_named_even_when_a_config_is_empty_or_broken(self):
+        """The two cases where nothing else distinguishes them at all."""
+        w = self._wizard()
+        home, (plain, three_p) = self._fake_home("Claude", "Claude-3p")
+        try:
+            with open(three_p, "w", encoding="utf-8") as fh:
+                fh.write("{ not json")
+            self._with_home(w, home)
+            # plain is the untouched fixture: valid JSON, zero servers.
+            self.assertIn("subscription", w._describe_config(plain))
+            self.assertIn("custom gateway", w._describe_config(three_p))
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def test_the_prompt_does_not_recommend_by_timestamp(self):
+        """It used to say the most recently modified was "usually the one in
+        use". For two builds of the same app that is a guess dressed as
+        advice -- mtime says which was last written, not which the user
+        works in. Ordering still puts it first; only the claim is gone."""
+        w = self._wizard()
+        home, _ = self._fake_home("Claude", "Claude-3p")
+        try:
+            self._with_home(w, home)
+            _, shown = self._choose(w, "1")
+            self.assertNotIn("usually", shown.lower(),
+                             "the prompt recommends a config by mtime:\n"
+                             + shown)
+            self.assertIn("build you actually use", shown)
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
     def test_an_unreadable_config_is_described_not_crashed_on(self):
         w = self._wizard()
         home, (plain,) = self._fake_home("Claude")

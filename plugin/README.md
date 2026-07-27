@@ -81,19 +81,24 @@ Then, in order:
    | `launching with <path>` | the interpreter that was chosen |
    | `FATAL: ...` | the exact cause of death (no Python ≥ 3.10, version floor, missing packages) |
 
-4. **Check you edited the config the app actually reads.** Not every build
-   keeps it in `Claude/`; third-party and enterprise distributions use a
-   suffixed directory such as `Claude-3p/`, and a machine can have several
-   side by side. The entry looks perfect and no tools appear, because the
-   running app never reads that file. To see which ones exist:
+4. **Check you edited the config the app actually reads.** A machine can have
+   more than one Claude build installed, each with its own directory and its
+   own config: `Claude-3p/` is the **custom-gateway** build, plain `Claude/`
+   is the **subscription** one. Both are ordinary installs — neither is the
+   wrong one — but each reads only its own file, so configuring the build you
+   don't run looks like it worked and produces no tools. To see which exist:
    ```bash
    ls -d ~/Library/Application\ Support/Claude*
    ```
    `prisma-sase-setup` scans for all of them and, when there is more than one,
-   lists them and asks which to write — it does not guess. To skip the question
-   (or when running unattended), set
-   `PRISMA_PANEL_CONFIG=<path> prisma-sase-setup`.
-   (Linux: `~/.config/Claude*`; Windows: `%APPDATA%\Claude*`.)
+   lists them — labelled by build — and asks which to write. It does not
+   guess, because nothing on disk reveals which one you work in. Configure
+   both by running it twice. To skip the question (or when running
+   unattended), set `PRISMA_PANEL_CONFIG=<path> prisma-sase-setup`.
+
+   (Linux: `~/.config/Claude*`. Windows: both `%APPDATA%\Claude*` **and**
+   `%LOCALAPPDATA%\Claude*` — builds differ on which they use, and a
+   `Claude-3p` install was found under `Local` in the field.)
 
 ## Getting the API key — a read-only service account
 

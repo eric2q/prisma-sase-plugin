@@ -125,6 +125,7 @@ print(json.dumps({
     'dirs': w._panel_config_dirs(),
     'found': w._existing_panel_configs(),
     'target': w._panel_config_path(),
+    'flavours': [w._flavour(p) for p in w._existing_panel_configs()],
 }))
 "@
 $c = & $py.Source -c $scan | ConvertFrom-Json
@@ -140,8 +141,20 @@ Write-Host "  machine      : $($g.machine)   (process: $env:PROCESSOR_ARCHITECTU
 Write-Host "  uvx args     : $($g.uvxargs)"
 Write-Host "  panel PATH   : $($g.path)"
 if ($c.found) {
-    Write-Host "  configs found: $($c.found -join "`n                 ")"
-    Write-Host "  would write  : $($c.target)"
+    for ($i = 0; $i -lt $c.found.Count; $i++) {
+        $label = if ($i -eq 0) { "  configs found:" } else { "                " }
+        Write-Host "$label $($c.found[$i])  [$($c.flavours[$i])]"
+    }
+    # Deliberately not "would write". With more than one build installed the
+    # wizard asks rather than picks -- both are real installs ("-3p" is the
+    # custom-gateway build, unsuffixed is subscription) and only the user
+    # knows which they work in. Printing a single path here read as though
+    # the choice had already been made, and made wrongly.
+    if ($c.found.Count -gt 1) {
+        Write-Host "                 -> more than one build: the wizard will ask which"
+    } else {
+        Write-Host "  would write  : $($c.target)"
+    }
 } else {
     Write-Host "  configs found: (none) -- would create $($c.target)"
 }
@@ -154,7 +167,7 @@ Check "backend is dpapi" {
     else { "got '$($g.backend)' -- is powershell.exe on PATH?" }
 }
 
-Check "every config on this machine is one the wizard can see" {
+Check "the wizard can see every config on this machine" {
     # Independent of the wizard: walk AppData directly and compare. Asking the
     # wizard whether it found everything would only ever confirm its own view,
     # which is exactly how a Local-only install stayed invisible while every

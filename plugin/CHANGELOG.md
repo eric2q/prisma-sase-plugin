@@ -94,6 +94,18 @@ path. See the README for the full walkthrough.
   value — and asks which to write. Guessing is the failure mode here, so it
   does not guess. `PRISMA_PANEL_CONFIG=<path>` answers ahead of time for
   unattended runs.
+  Two follow-ups from a second machine. **Windows searched only `%APPDATA%`**,
+  and a `Claude-3p` install was found keeping its config under
+  `%LOCALAPPDATA%` — the suffixed *name* was handled, the parent directory was
+  assumed, and the result was the same silent write to a file nothing reads.
+  Both bases are searched now. And **the listing said nothing about which
+  build each config belonged to**: `-3p` is the custom-gateway build,
+  unsuffixed is subscription, and two fresh installs both hold zero servers —
+  so on the machine where the choice matters, the prompt offered two paths
+  that differed only by a directory name. Each entry is now labelled by build.
+  The old hint that the most recently modified one is "usually the one in use"
+  is gone: both are real installs, and mtime says which was last written, not
+  which you work in.
 - **FIX (diagnosis, high):** the plugin **stopped accusing correctly-installed
   users of a host bug.** 0.8.8 treated "enabled, but `settings.json` holds no
   `pluginConfigs` entry" as proof the enable dialog never ran — a sound
