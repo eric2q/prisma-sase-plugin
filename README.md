@@ -340,7 +340,7 @@ is recorded per release in [`plugin/CHANGELOG.md`](plugin/CHANGELOG.md)
 (entries are tagged `FIX` / `NEW` / `CHG`).
 
 **Pinning, if you need a stable target.** Add a git ref to the `--from` URL and
-the auto-update stops there: `git+https://github.com/eric2q/prisma-sase-plugin@v0.9.3`.
+the auto-update stops there: `git+https://github.com/eric2q/prisma-sase-plugin@v0.9.4`.
 Useful for a customer demo you do not want moving under you.
 
 ### Working offline
@@ -357,7 +357,7 @@ git+https://github.com/eric2q/prisma-sase-plugin@e666ab410338855b4e03044c7f596e6
 ```
 
 **A tag is not enough.** Tags can be moved, so uv still contacts the remote to
-check, and `@v0.9.3` fails offline exactly as an unpinned URL does. Only a full
+check, and `@v0.9.4` fails offline exactly as an unpinned URL does. Only a full
 SHA lets uv trust the cache. Warm the cache once while online and the pinned
 entry then launches with no connection.
 

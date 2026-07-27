@@ -318,7 +318,7 @@ Desktop 則是 **Settings → Plugins →(該 marketplace)Update**。版本由
 英文)。
 
 **固定版本。** 在 `--from` 的 URL 後面加上 git ref,自動更新就會停在該版本:
-`git+https://github.com/eric2q/prisma-sase-plugin@v0.9.3`。適合不希望版本在
+`git+https://github.com/eric2q/prisma-sase-plugin@v0.9.4`。適合不希望版本在
 客戶 demo 期間變動的情況。
 
 ### 離線使用
@@ -334,7 +334,7 @@ git+https://github.com/eric2q/prisma-sase-plugin@e666ab410338855b4e03044c7f596e6
 ```
 
 **釘 tag 是不夠的。** git tag 可以被移動,所以 uv 仍然會連去遠端確認,
-`@v0.9.3` 在離線時的失敗方式與沒釘版本完全相同;只有完整 SHA 能讓 uv 信任
+`@v0.9.4` 在離線時的失敗方式與沒釘版本完全相同;只有完整 SHA 能讓 uv 信任
 快取。趁有網路時先把快取建立起來,之後即可在完全離線的狀態下啟動。
 
 ## 關於託管方式

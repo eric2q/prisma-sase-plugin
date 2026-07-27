@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.9.4 — 2026-07-28
+
+**The marketplace manifest was missing `$schema` and carried a `strict` flag it
+had no business setting.** Claude Code's CLI accepts the manifest either way —
+it validated clean on every local test — but Claude Desktop does not read the
+local clone at all. It registers the marketplace through an account-scoped
+backend API, and that validator is stricter than the CLI's. A manifest that
+installs perfectly from the command line can still be rejected there, which is
+exactly the failure mode that is hard to diagnose: the repo looks fine from
+every angle you can test.
+
+Three changes, all to `.claude-plugin/marketplace.json`:
+
+- **`$schema` added.** Anthropic's own official marketplace declares it on line
+  one; ours never did.
+- **`strict: true` removed from the plugin entry.** It exists to resolve a
+  conflict — a plugin that declares components in *both* `plugin.json` and its
+  marketplace entry. This plugin declares components in neither, so the flag
+  resolved nothing and only added a field the backend had to accept.
+- **Top-level `description`, `owner.email` and entry `homepage` added**, all
+  present in the official manifest and all absent from ours.
+
+An honest note on evidence: this has not been confirmed against the backend
+validator, because there is no way to run it locally. What is confirmed is that
+the manifest previously diverged from the reference in four ways, and that it
+still installs cleanly via the CLI with the divergences removed.
+
 ## 0.9.3 — 2026-07-28
 
 Documentation only. Both entries come from the same place: 0.9.0 renamed the

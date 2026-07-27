@@ -1,11 +1,14 @@
 {
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "prisma-sase",
+  "description": "Read-only Prisma SASE (Prisma Access) ops Skill for the prisma-sase MCP tools.",
   "owner": {
-    "name": "Eric (Solutions Consultant, Palo Alto Networks)"
+    "name": "Eric (Solutions Consultant, Palo Alto Networks)",
+    "email": "eric2q@users.noreply.github.com"
   },
   "metadata": {
     "description": "Prisma SASE (Prisma Access) ops Skill: tool-selection decision tree, metric thresholds, diagnostic runbooks and a weekly-report template. The read-only MCP tools it drives install separately as a Local MCP server — see the README.",
-    "version": "0.9.3"
+    "version": "0.9.4"
   },
   "plugins": [
     {
@@ -26,8 +29,8 @@
         "network-operations"
       ],
       "category": "network-operations",
-      "strict": true,
-      "license": "MIT"
+      "license": "MIT",
+      "homepage": "https://github.com/eric2q/prisma-sase-plugin"
     }
   ]
 }
