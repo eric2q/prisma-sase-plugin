@@ -50,18 +50,72 @@ Server 單獨就能用 —— Skill 只是讓 Claude 更會挑工具、更會判
 
 ## 事前需求
 
-| 需要 | 怎麼確認 | 缺少時怎麼裝 |
-|---|---|---|
-| **uv**(提供 `uvx`) | `uvx --version` | `curl -LsSf https://astral.sh/uv/install.sh \| sh`(macOS/Linux)或 `brew install uv`。Windows:`winget install astral-sh.uv`。完整說明:[docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/) |
-| **git** | `git --version` | 底下每一道指令都是 `--from git+https://…`,uv 得叫 git 去解 ref。Windows:`winget install Git.Git`,裝完**開一個新的終端機**讓 `PATH` 重讀。macOS:`xcode-select --install`。Linux:用你的套件管理器。沒有它,uv 會停在 *"Git executable not found"* |
-| **能連 GitHub 與 PyPI 的網路** | — | uvx 第一次啟動時抓本 repo 與兩個依賴套件,之後走快取。公司 proxy 環境:設 `HTTPS_PROXY=http://proxy:port` |
-| **SCM 唯讀 service account** | — | 見下面的[產生 API Key](#產生-api-key建立唯讀-service-account) |
+**先把 `uv` 跟 `git` 都裝好 —— 兩個都要。** 然後跑一道確認,確定自己準備好了。
+在進安裝章節之前做完,不要等到中途出錯才回頭查。
 
-你**不需要**自己裝 Python。系統的版本太舊時 uv 會自己下載一個合用的 —— macOS
-通常正是這種情況,內建的 `/usr/bin/python3` 常常是 3.9,而 `fastmcp` 需要 3.10。
+**macOS**
+
+```bash
+brew install uv git
+```
+
+**Windows**(PowerShell),裝完**開一個新的終端機**讓 `PATH` 重讀:
+
+```powershell
+winget install astral-sh.uv
+```
+
+```powershell
+winget install Git.Git
+```
+
+**Linux** —— uv 用 `curl -LsSf https://astral.sh/uv/install.sh | sh`,git 用你的
+套件管理器。
+
+**然後確認兩個都答得出來:**
+
+```bash
+uvx --version && git --version
+```
+
+印出兩行版本號就代表齊了。其他都不用裝 —— 尤其**不用裝 Python**:系統的版本
+太舊時 uv 會自己下載一個合用的,macOS 通常正是這種情況(內建的
+`/usr/bin/python3` 常常是 3.9,而 `fastmcp` 需要 3.10)。
+
+<details>
+<summary>各自為什麼需要,以及缺少時會看到什麼</summary>
+
+| 需要 | 為什麼 | 缺少時長什麼樣 |
+|---|---|---|
+| **uv**(提供 `uvx`) | 所有平台底下每一道指令的啟動器,也負責提供 Python 直譯器 | 終端機出現 `uvx: command not found` —— 若 app 那邊已經設定好了,則會變成 MCP server 無聲無息起不來 |
+| **git** | 每一道指令都是 `--from git+https://…`,uv 得叫 git 去解 ref、抓原始碼 | uv 停在 *"Git executable not found"*。這是**安裝期**才需要的;版本進了快取之後,啟動就不會再叫 git |
+| **能連 GitHub 與 PyPI 的網路** | uvx 第一次啟動時抓本 repo 與依賴套件,而且**每一次**啟動都會重新確認 ref。公司 proxy 環境:設 `HTTPS_PROXY=http://proxy:port` | 一行 `Updating … (HEAD)` 之後接 *"Failed to resolve"* / *"Git operation failed"*。見[離線使用](#離線使用) —— 光靠熱快取**救不了** |
+| **SCM 唯讀 service account** | 工具拿去認證的 Client ID / Secret / TSG | 見下面的[產生 API Key](#產生-api-key建立唯讀-service-account) |
+
+uv 的完整安裝選項:[docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/)。
+macOS 若不想用 Homebrew,`xcode-select --install` 也會裝上 git。
+
+</details>
 
 還沒有 Prisma 租戶?一切都能離線試用:設 `PRISMA_MOCK=1`,所有工具會用
 擬真範例資料回答 —— 不需要憑證、不需要網路。
+
+### 離線使用
+
+這個 server **每次啟動都會重新解析 git ref** —— 自動更新就是這樣來的 ——
+所以預設情況下它**每次啟動**都要網路,不是只有第一次安裝要。熱快取改變不了
+這件事。如果你會在飯店 Wi-Fi、飛機上,或在擋掉 GitHub 的網路裡做 demo,請在
+`--from` 的網址後面釘一個**完整 40 碼的 commit SHA**:
+
+```
+git+https://github.com/eric2q/prisma-sase-plugin@f29ee8ec141012ca238798773f73a7c82c2cf3a5
+```
+
+只有完整 SHA 有用。**釘 tag 不夠** —— git 的 tag 是可以移動的,uv 不敢假設它
+沒變,還是會去問 remote,所以 `@v0.9.1` 在斷網時的失敗方式跟沒釘完全一樣。
+趁還有網路時先熱一次快取,那個釘好的設定就能在完全沒連線的情況下啟動。
+
+代價很直接:釘住之後就不會自動更新了。想要新版時,把 SHA 往前挪。
 
 ## 安裝
 
@@ -259,8 +313,9 @@ Desktop 則是 **Settings → Plugins →(該 marketplace)Update**。版本由
 `FIX` / `NEW` / `CHG`,英文)。
 
 **需要固定版本的話。** 在 `--from` 的 URL 後面加上 git ref,自動更新就停在
-那裡:`git+https://github.com/eric2q/prisma-sase-plugin@v0.9.0`。要對客戶
-demo、不希望腳下的東西自己移動時很有用。
+那裡:`git+https://github.com/eric2q/prisma-sase-plugin@v0.9.1`。要對客戶
+demo、不希望腳下的東西自己移動時很有用。如果那場 demo 還得**沒網路也能跑**,
+釘 tag 就不夠了 —— 要用完整的 commit SHA,見[離線使用](#離線使用)。
 
 ## 關於託管方式
 

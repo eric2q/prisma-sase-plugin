@@ -55,19 +55,78 @@ Phase 2 could add)? See the
 
 ## Prerequisites
 
-| You need | How to check | If it's missing |
-|---|---|---|
-| **uv** (provides `uvx`) | `uvx --version` | `curl -LsSf https://astral.sh/uv/install.sh \| sh` (macOS/Linux) or `brew install uv`. Windows: `winget install astral-sh.uv`. Full options: [docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/) |
-| **git** | `git --version` | Every command below installs `--from git+https://…`, so uv shells out to git to resolve the ref. Windows: `winget install Git.Git`, then **open a new terminal** so `PATH` is re-read. macOS: `xcode-select --install`. Linux: your package manager. Without it uv stops at *"Git executable not found"* |
-| **Network to GitHub + PyPI** | — | uvx fetches this repo and its two dependencies on first launch, then caches them. Behind a corporate proxy: set `HTTPS_PROXY=http://proxy:port` |
-| **A read-only SCM service account** | — | [Getting the API key](#getting-the-api-key-read-only-service-account), below |
+**Install `uv` and `git` first — both of them.** Then run one check that tells
+you you are ready. Do this before the install section, not after something
+fails halfway through.
 
-You do **not** need to install Python yourself. uv downloads a suitable
-interpreter if your system's is too old — which on macOS it usually is, since
-the built-in `/usr/bin/python3` is often 3.9 and `fastmcp` needs 3.10.
+**macOS**
+
+```bash
+brew install uv git
+```
+
+**Windows** (PowerShell), then **open a new terminal** so `PATH` is re-read:
+
+```powershell
+winget install astral-sh.uv
+```
+
+```powershell
+winget install Git.Git
+```
+
+**Linux** — `curl -LsSf https://astral.sh/uv/install.sh | sh` for uv, and git
+from your package manager.
+
+**Then confirm both answer:**
+
+```bash
+uvx --version && git --version
+```
+
+If that prints two version lines you have everything. Nothing else needs
+installing — in particular **not Python**: uv downloads a suitable interpreter
+when your system's is too old, which on macOS it usually is (the built-in
+`/usr/bin/python3` is often 3.9 and `fastmcp` needs 3.10).
+
+<details>
+<summary>Why each one, and what it looks like when it is missing</summary>
+
+| You need | Why | Missing looks like |
+|---|---|---|
+| **uv** (provides `uvx`) | The launcher for everything below, on every OS. Also supplies the Python interpreter | `uvx: command not found` in your terminal — or, if the app was already configured, an MCP server that silently never starts |
+| **git** | Every command here installs `--from git+https://…`, and uv shells out to git to resolve the ref and fetch the source | uv stops at *"Git executable not found"*. Needed at **install** time; once the version is cached, launches no longer call git |
+| **Network to GitHub + PyPI** | uvx fetches this repo and its dependencies on first launch, and re-checks the ref on **every** launch. Behind a corporate proxy: set `HTTPS_PROXY=http://proxy:port` | *"Failed to resolve"* / *"Git operation failed"* after an `Updating … (HEAD)` line. See [Working offline](#working-offline) — a warm cache alone does **not** make this work |
+| **A read-only SCM service account** | The Client ID / Secret / TSG the tools authenticate with | [Getting the API key](#getting-the-api-key-read-only-service-account), below |
+
+Full uv install options: [docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/).
+On macOS `xcode-select --install` also provides git if you would rather not use
+Homebrew.
+
+</details>
 
 No Prisma tenant yet? Everything can still be tried offline: set `PRISMA_MOCK=1`
 and the tools answer with realistic sample data — no credentials, no network.
+
+### Working offline
+
+The server **re-resolves the git ref on every launch** — that is what makes it
+auto-update — so by default it needs the network *each time it starts*, not just
+on first install. A warm cache does not change this. If you demo on hotel Wi-Fi,
+on a plane, or inside a network that blocks GitHub, pin a **full 40-character
+commit SHA** in the `--from` URL:
+
+```
+git+https://github.com/eric2q/prisma-sase-plugin@f29ee8ec141012ca238798773f73a7c82c2cf3a5
+```
+
+Only a full SHA works for this. **Pinning a tag is not enough** — a git tag can
+be moved, so uv still contacts the remote to check, and `@v0.9.1` fails offline
+exactly like an unpinned URL does. Warm the cache once while you still have
+network, and that pinned entry launches with no connection at all.
+
+The trade-off is the obvious one: a pinned entry stops auto-updating. Move the
+SHA forward when you want a newer version.
 
 ## Install
 
@@ -277,8 +336,10 @@ is recorded per release in [`plugin/CHANGELOG.md`](plugin/CHANGELOG.md)
 (entries are tagged `FIX` / `NEW` / `CHG`).
 
 **Pinning, if you need a stable target.** Add a git ref to the `--from` URL and
-the auto-update stops there: `git+https://github.com/eric2q/prisma-sase-plugin@v0.9.0`.
-Useful for a customer demo you do not want moving under you.
+the auto-update stops there: `git+https://github.com/eric2q/prisma-sase-plugin@v0.9.1`.
+Useful for a customer demo you do not want moving under you. If the demo also
+has to survive *without network*, a tag is not enough — use a full commit SHA,
+per [Working offline](#working-offline).
 
 ## Notes on hosting
 

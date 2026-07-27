@@ -7,16 +7,28 @@ their numbers, diagnostic runbooks, and a weekly-report template.
 **The tools themselves are not in here.** Since 0.9.0 the read-only MCP server
 installs separately, as a Local MCP server launched through `uvx`, so it
 updates itself on every app restart instead of waiting for a plugin update.
-One command sets it up:
+
+**Install `uv` and `git` first** — both, before anything else. `brew install uv
+git` on macOS; on Windows `winget install astral-sh.uv` then `winget install
+Git.Git`, and open a new terminal so `PATH` is re-read. Confirm with:
+
+```bash
+uvx --version && git --version
+```
+
+You do **not** need Python — uv supplies its own interpreter. With those two in
+place, one command sets the server up:
 
 ```bash
 uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
 ```
 
 Full install instructions, prerequisites and the update model are in the
-[repository README](../README.md) ([繁體中文](../README.zh-TW.md)). This page
-is the reference material: the API-key walkthrough, credential storage,
-troubleshooting, and every environment variable.
+[repository README](../README.md) ([繁體中文](../README.zh-TW.md)) — including
+[working offline](../README.md#working-offline), which needs a pinned commit
+SHA because every launch re-resolves the git ref. This page is the reference
+material: the API-key walkthrough, credential storage, troubleshooting, and
+every environment variable.
 
 > **Read-only by design.** Every tool only *queries*. There is no write /
 > commit / config-push path anywhere (design doc sec.10.1).
@@ -112,6 +124,11 @@ Then, in order:
    **In the MCP log, at app launch, on a machine where `git --version` works**
    — that is the other one, and it is not a `PATH` problem, so adding git to
    `PATH` again changes nothing. Read on.
+
+   (A third failure shares the enclosing *"Git operation failed"* line but
+   **not** the *"executable not found"* one: with no network, an unpinned entry
+   dies at `Updating … (HEAD)`. That is the offline case — see the
+   troubleshooting table.)
 
    The app passes the server only a fixed list of environment variables
    (`APPDATA`, `PATH`, `SYSTEMROOT` and a handful more). **`PATHEXT` is not on
@@ -294,6 +311,7 @@ a customer demo.
 | Tools missing right after fixing anything | MCP servers are only relaunched on a **full app restart** | macOS **⌘Q** (closing the window is not enough), then reopen. Windows: quit from the tray, not just the window |
 | First launch is slow | uvx is fetching this repo plus two dependencies, then caching them | Subsequent launches reuse the cache; only a new commit triggers a rebuild |
 | Behind a corporate proxy, uvx cannot fetch | No proxy in the server's environment | Add `HTTPS_PROXY=http://proxy:port` to the entry's `env` block |
+| `Updating … (HEAD)` then `Failed to resolve` / `Git operation failed`, with no network | Every launch re-resolves the git ref, so an unpinned entry needs the network **each time it starts** — a warm cache does not help, and neither does `--offline` | Pin a **full 40-char commit SHA** in the `--from` URL and warm the cache once while online. A tag (`@v0.9.1`) is *not* enough: tags can move, so uv still contacts the remote. See [Working offline](../README.md#working-offline) |
 | "Missing required context / Missing PRISMA_CLIENT_ID…" although `launchctl getenv` shows values | macOS GUI apps launched from Finder/Dock are not guaranteed to inherit `launchctl setenv` (field-verified) | Put the values in the Local MCP entry's `env`, or `~/.prisma-sase.env`. `--selfcheck` shows which source supplied each value |
 | Insights tool returns HTTP 400 | Resource/view name or filter-payload shape doesn't match this tenant (the client already auto-tries time-filter and empty-filter variants) | Run `discover_insights` (or `--discover`), adopt the `suggested_insights_map` |
 | Alerts show only counts, `severity_unavailable: true` | The per-alert severity view (`prisma_sase_external_alerts_current`, tried automatically first) did not return usable rows, so the tool fell back to the aggregate view | `discover_insights(kind="alerts_detail")` probes the candidates; if none work, capture the real view name from the SASE UI (dev tools → Network — step-by-step in the Skill's `references/endpoints.md`, "When discovery finds nothing") and set `PRISMA_INSIGHTS_MAP`; please report working names so they become shipped defaults |

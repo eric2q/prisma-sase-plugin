@@ -26,6 +26,30 @@ machine that had run an earlier version.
 
 - **DOC (install, high):** git listed as a prerequisite — see below.
 
+- **DOC (install, high):** **the prerequisites are now install commands, not a
+  diagnosis table.** They used to be a *"how to check / if it's missing"* grid
+  — a shape that only helps someone who has already hit the error and come back
+  looking. Both halves are still there, but the section now opens with the two
+  commands to run (`brew install uv git`, or the two `winget` lines) and a
+  single `uvx --version && git --version` that says you are ready. The
+  reasoning and the failure signatures moved into a collapsed block underneath,
+  for whoever wants them.
+
+- **DOC (offline, high):** **an unpinned entry does not launch without a
+  network, and a warm cache does not save it.** Re-resolving the git ref on
+  every launch is exactly what makes the auto-update work, so the network is
+  needed *each time the server starts*, not just at install. Nothing said so.
+  A new **Working offline** section covers it, along with the part that is
+  easy to get wrong: **pinning a tag is not enough.** Tags can be moved, so uv
+  still asks the remote, and `@v0.9.1` fails offline exactly like an unpinned
+  URL — only a full 40-character commit SHA lets uv trust the cache. Verified
+  by measurement, not assumption: unpinned, tag-pinned and SHA-pinned entries
+  each run with the network cut, and only the last one starts.
+
+  Also confirmed while measuring, and now stated in the table: git is an
+  **install-time** requirement only. With the version already cached, launches
+  never call git — uv's GitHub fast path resolves the commit over HTTPS.
+
 ## 0.9.0 — 2026-07-27
 
 **The plugin split in two.** The MCP server is no longer mounted by the
