@@ -8,11 +8,24 @@ Skill (decision tree, thresholds, runbooks, weekly-report template).
 Ask Claude things like *"how is SASE doing right now — any P1 alerts?"* or
 *"list tunnel status — which are down?"* against your own tenant.
 
-One command sets it up:
+**Four steps, in this order** — environment, credentials, server, Skill:
+
+| | Step | What it is |
+|---|---|---|
+| **1** | [Prerequisites](#1-prerequisites) | `uv` and `git` — two commands, one check |
+| **2** | [Get the API key](#2-get-the-api-key) | A read-only SCM service account |
+| **3** | [Run the guided setup](#3-run-the-guided-setup) | One command: installs the server *and* stores the credentials |
+| **4** | [Add the Skill](#4-add-the-skill-optional) | Optional — runbooks and the report template |
+
+Step 3 is the command everybody quotes, and it really is just the one — it does
+the install and the credentials together:
 
 ```bash
 uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
 ```
+
+It is not, however, the *first* thing you run. Step 1 has to be true before it
+can work at all, and step 2 gives it something to ask you for.
 
 > **Read-only by design** — no write / commit / config-push path exists anywhere.
 
@@ -53,7 +66,7 @@ Curious how the 6 tools map onto PANW's full API surface (and what a read-only
 Phase 2 could add)? See the
 [Prisma SASE API catalog](plugin/skills/prisma-sase-ops/references/api-catalog.md).
 
-## Prerequisites
+## 1. Prerequisites
 
 **Install `uv` and `git` first — both of them.** Then run one check that tells
 you you are ready. Do this before the install section, not after something
@@ -97,7 +110,7 @@ when your system's is too old, which on macOS it usually is (the built-in
 | **uv** (provides `uvx`) | The launcher for everything below, on every OS. Also supplies the Python interpreter | `uvx: command not found` in your terminal — or, if the app was already configured, an MCP server that silently never starts |
 | **git** | Every command here installs `--from git+https://…`, and uv shells out to git to resolve the ref and fetch the source | uv stops at *"Git executable not found"*. Needed at **install** time; once the version is cached, launches no longer call git |
 | **Network to GitHub + PyPI** | uvx fetches this repo and its dependencies on first launch, and re-checks the ref on **every** launch. Behind a corporate proxy: set `HTTPS_PROXY=http://proxy:port` | *"Failed to resolve"* / *"Git operation failed"* after an `Updating … (HEAD)` line. See [Working offline](#working-offline) — a warm cache alone does **not** make this work |
-| **A read-only SCM service account** | The Client ID / Secret / TSG the tools authenticate with | [Getting the API key](#getting-the-api-key-read-only-service-account), below |
+| **A read-only SCM service account** | The Client ID / Secret / TSG the tools authenticate with | That is [step 2](#2-get-the-api-key) — not needed to run step 1 |
 
 Full uv install options: [docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/).
 On macOS `xcode-select --install` also provides git if you would rather not use
@@ -108,35 +121,23 @@ Homebrew.
 No Prisma tenant yet? Everything can still be tried offline: set `PRISMA_MOCK=1`
 and the tools answer with realistic sample data — no credentials, no network.
 
-### Working offline
+Demoing somewhere without a network? The server re-resolves the git ref on every
+launch, so that needs one extra step — see [Working offline](#working-offline),
+under Update.
 
-The server **re-resolves the git ref on every launch** — that is what makes it
-auto-update — so by default it needs the network *each time it starts*, not just
-on first install. A warm cache does not change this. If you demo on hotel Wi-Fi,
-on a plane, or inside a network that blocks GitHub, pin a **full 40-character
-commit SHA** in the `--from` URL:
+## 2. Get the API key
 
-```
-git+https://github.com/eric2q/prisma-sase-plugin@f29ee8ec141012ca238798773f73a7c82c2cf3a5
-```
+Prisma SASE's "API key" is a **service account's Client ID + Client Secret**,
+created in Strata Cloud Manager. The illustrated four-step walkthrough is
+[further down](#the-api-key-walkthrough-read-only-service-account) — do it now
+and keep both values in front of you, because step 3 asks for them and the
+Secret is shown **only once**, at creation.
 
-Only a full SHA works for this. **Pinning a tag is not enough** — a git tag can
-be moved, so uv still contacts the remote to check, and `@v0.9.1` fails offline
-exactly like an unpinned URL does. Warm the cache once while you still have
-network, and that pinned entry launches with no connection at all.
+## 3. Run the guided setup
 
-The trade-off is the obvious one: a pinned entry stops auto-updating. Move the
-SHA forward when you want a newer version.
-
-## Install
-
-**1. Create the API key** — the four-step SCM walkthrough is
-[below](#getting-the-api-key-read-only-service-account). Have the Client ID and
-Client Secret in front of you before the next step.
-
-**2. Run the guided setup.** It asks for the four values with an explanation of
-each, puts the Client Secret in your OS keychain, and writes the Local MCP
-servers entry for you:
+This one command does the install **and** the credentials. It asks for the four
+values with an explanation of each, puts the Client Secret in your OS keychain,
+and writes the Local MCP servers entry for you:
 
 ```bash
 uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
@@ -173,10 +174,15 @@ launch to fetch it from the keychain. Panel values are stored in plaintext in
 `claude_desktop_config.json`, which rides along in Time Machine and any backup
 that copies your home directory — so the secret stays out of it.
 
-**3. Restart the Claude app completely** (macOS: ⌘Q — closing the window does
-not relaunch MCP servers). Then ask it about your tenant.
+**Then restart the Claude app completely** (macOS: ⌘Q — closing the window does
+not relaunch MCP servers) and ask it about your tenant. At this point the tools
+work; the Skill below is what makes Claude *good* at using them.
 
-**4. Optional — add the Skill** for the diagnostic runbooks and report template:
+## 4. Add the Skill (optional)
+
+The tools answer queries on their own. The Skill adds the judgement around them
+— which tool to reach for, what the numbers mean, the diagnostic runbooks and
+the weekly-report template:
 
 *Claude Desktop / Cowork:* **Settings → Plugins → Add marketplace → Add from a
 repository** → `eric2q/prisma-sase-plugin` → install **prisma-sase**.
@@ -194,7 +200,7 @@ repository** → `eric2q/prisma-sase-plugin` → install **prisma-sase**.
 > `run.sh`. It works identically but does **not** auto-update — you pull the
 > repo yourself. Details in [`plugin/README.md`](plugin/README.md).
 
-## Getting the API key (read-only service account)
+## The API key walkthrough (read-only service account)
 
 Prisma SASE's "API key" is a **service account's Client ID + Client Secret**,
 created in **Strata Cloud Manager (SCM)** in four steps. This plugin only
@@ -246,8 +252,8 @@ under the correct TSG scope and bind only the tenants you need.
 
 **Provide the values from step 3** — three supported paths, best first:
 
-- **`prisma-sase-setup` (recommended):** the guided setup from
-  [Install](#install) step 2. Secret to the OS keychain, the other three onto
+- **`prisma-sase-setup` (recommended):** the guided setup,
+  [step 3](#3-run-the-guided-setup). Secret to the OS keychain, the other three onto
   the Local MCP entry, and a `PRISMA_SECRET_CMD` that fetches the secret at
   launch. Nothing secret is written to a file.
 - **The Local MCP servers panel, by hand:** the same four as environment
@@ -336,10 +342,27 @@ is recorded per release in [`plugin/CHANGELOG.md`](plugin/CHANGELOG.md)
 (entries are tagged `FIX` / `NEW` / `CHG`).
 
 **Pinning, if you need a stable target.** Add a git ref to the `--from` URL and
-the auto-update stops there: `git+https://github.com/eric2q/prisma-sase-plugin@v0.9.1`.
-Useful for a customer demo you do not want moving under you. If the demo also
-has to survive *without network*, a tag is not enough — use a full commit SHA,
-per [Working offline](#working-offline).
+the auto-update stops there: `git+https://github.com/eric2q/prisma-sase-plugin@v0.9.2`.
+Useful for a customer demo you do not want moving under you.
+
+### Working offline
+
+Auto-updating and running without a network are the same trade-off seen from
+two sides. The server **re-resolves the git ref on every launch** — that is what
+makes updates automatic — so by default it needs the network *each time it
+starts*, not just on first install. A warm cache does not change this.
+
+If you demo on hotel Wi-Fi, on a plane, or inside a network that blocks GitHub,
+pin a **full 40-character commit SHA**:
+
+```
+git+https://github.com/eric2q/prisma-sase-plugin@e666ab410338855b4e03044c7f596e6654645f7e
+```
+
+Only a full SHA works. **Pinning a tag is not enough** — a git tag can be moved,
+so uv still contacts the remote to check, and `@v0.9.2` fails offline exactly
+like an unpinned URL does. Warm the cache once while you still have network, and
+that pinned entry launches with no connection at all.
 
 ## Notes on hosting
 

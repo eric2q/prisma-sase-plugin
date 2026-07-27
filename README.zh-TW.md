@@ -8,11 +8,23 @@ Skill(工具決策樹、判讀閾值、診斷 runbook、週報模板)。安裝�
 租戶問 Claude:*「現在 SASE 狀態如何?有沒有 P1 告警?」*、*「列出 tunnel
 狀態,哪些斷線?」*。
 
-一行指令就能裝好:
+**四個步驟,照這個順序** —— 環境、憑證、server、Skill:
+
+| | 步驟 | 是什麼 |
+|---|---|---|
+| **1** | [事前需求](#1-事前需求) | `uv` 跟 `git` —— 兩道指令、一道確認 |
+| **2** | [產生 API Key](#2-產生-api-key) | SCM 的唯讀 service account |
+| **3** | [執行引導式設定](#3-執行引導式設定) | 一行指令:同時裝好 server **並**存進憑證 |
+| **4** | [裝上 Skill](#4-裝上-skill選用) | 選用 —— 診斷 runbook 與週報模板 |
+
+第 3 步就是大家在引用的那一行,而且真的只有那一行 —— 安裝跟憑證它一次做完:
 
 ```bash
 uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
 ```
+
+但它**不是**你第一個要跑的東西。第 1 步得先成立,它才跑得起來;第 2 步則是
+讓它有東西可以問你。
 
 > **設計上即為唯讀** —— 整個專案不存在任何寫入 / commit / 推送設定的程式路徑。
 
@@ -48,7 +60,7 @@ Server 單獨就能用 —— Skill 只是讓 Claude 更會挑工具、更會判
 還能加什麼)?見
 [Prisma SASE API catalog](plugin/skills/prisma-sase-ops/references/api-catalog.md)(英文)。
 
-## 事前需求
+## 1. 事前需求
 
 **先把 `uv` 跟 `git` 都裝好 —— 兩個都要。** 然後跑一道確認,確定自己準備好了。
 在進安裝章節之前做完,不要等到中途出錯才回頭查。
@@ -90,7 +102,7 @@ uvx --version && git --version
 | **uv**(提供 `uvx`) | 所有平台底下每一道指令的啟動器,也負責提供 Python 直譯器 | 終端機出現 `uvx: command not found` —— 若 app 那邊已經設定好了,則會變成 MCP server 無聲無息起不來 |
 | **git** | 每一道指令都是 `--from git+https://…`,uv 得叫 git 去解 ref、抓原始碼 | uv 停在 *"Git executable not found"*。這是**安裝期**才需要的;版本進了快取之後,啟動就不會再叫 git |
 | **能連 GitHub 與 PyPI 的網路** | uvx 第一次啟動時抓本 repo 與依賴套件,而且**每一次**啟動都會重新確認 ref。公司 proxy 環境:設 `HTTPS_PROXY=http://proxy:port` | 一行 `Updating … (HEAD)` 之後接 *"Failed to resolve"* / *"Git operation failed"*。見[離線使用](#離線使用) —— 光靠熱快取**救不了** |
-| **SCM 唯讀 service account** | 工具拿去認證的 Client ID / Secret / TSG | 見下面的[產生 API Key](#產生-api-key建立唯讀-service-account) |
+| **SCM 唯讀 service account** | 工具拿去認證的 Client ID / Secret / TSG | 那是[第 2 步](#2-產生-api-key) —— 跑第 1 步時還用不到 |
 
 uv 的完整安裝選項:[docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/)。
 macOS 若不想用 Homebrew,`xcode-select --install` 也會裝上 git。
@@ -100,31 +112,20 @@ macOS 若不想用 Homebrew,`xcode-select --install` 也會裝上 git。
 還沒有 Prisma 租戶?一切都能離線試用:設 `PRISMA_MOCK=1`,所有工具會用
 擬真範例資料回答 —— 不需要憑證、不需要網路。
 
-### 離線使用
+要在沒網路的地方 demo?這個 server 每次啟動都會重新解析 git ref,所以那需要
+多一個步驟 —— 見「更新」底下的[離線使用](#離線使用)。
 
-這個 server **每次啟動都會重新解析 git ref** —— 自動更新就是這樣來的 ——
-所以預設情況下它**每次啟動**都要網路,不是只有第一次安裝要。熱快取改變不了
-這件事。如果你會在飯店 Wi-Fi、飛機上,或在擋掉 GitHub 的網路裡做 demo,請在
-`--from` 的網址後面釘一個**完整 40 碼的 commit SHA**:
+## 2. 產生 API Key
 
-```
-git+https://github.com/eric2q/prisma-sase-plugin@f29ee8ec141012ca238798773f73a7c82c2cf3a5
-```
+Prisma SASE 的「API Key」其實是 **service account 的 Client ID + Client
+Secret**,在 Strata Cloud Manager 裡建立。四步圖解在
+[後面](#api-key-圖解建立唯讀-service-account) —— 現在就去做,並把兩個值留在
+手邊,因為第 3 步會跟你要,而 Secret **只在建立當下顯示一次**。
 
-只有完整 SHA 有用。**釘 tag 不夠** —— git 的 tag 是可以移動的,uv 不敢假設它
-沒變,還是會去問 remote,所以 `@v0.9.1` 在斷網時的失敗方式跟沒釘完全一樣。
-趁還有網路時先熱一次快取,那個釘好的設定就能在完全沒連線的情況下啟動。
+## 3. 執行引導式設定
 
-代價很直接:釘住之後就不會自動更新了。想要新版時,把 SHA 往前挪。
-
-## 安裝
-
-**1. 產生 API Key** —— SCM 四步圖解在
-[下一節](#產生-api-key建立唯讀-service-account)。做下一步之前,先把 Client ID
-和 Client Secret 準備在手邊。
-
-**2. 執行引導式設定。** 它會逐項說明並詢問那四個值,把 Client Secret 存進作業
-系統的 keychain,然後幫你寫好 Local MCP servers 的設定:
+這一行指令會把安裝**跟**憑證一次做完。它會逐項說明並詢問那四個值,把 Client
+Secret 存進作業系統的 keychain,然後幫你寫好 Local MCP servers 的設定:
 
 ```bash
 uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
@@ -161,10 +162,14 @@ uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
 會跟著 Time Machine、以及任何會複製家目錄的備份一起被帶走 —— 所以 secret
 不放進去。
 
-**3. 完全重啟 Claude 應用程式**(macOS 按 ⌘Q —— 只關視窗不會重新啟動 MCP
-server),然後就能開始問你的租戶狀況了。
+**接著完全重啟 Claude 應用程式**(macOS 按 ⌘Q —— 只關視窗不會重新啟動 MCP
+server),然後就能開始問你的租戶狀況了。到這一步工具已經會動;底下的 Skill
+是讓 Claude **用得好**的東西。
 
-**4. 選用 —— 加裝 Skill**,取得診斷 runbook 與週報模板:
+## 4. 裝上 Skill(選用)
+
+工具本身就能回答問題。Skill 加上去的是圍繞它們的判斷力 —— 什麼情況該用哪個
+工具、數字代表什麼意思、診斷 runbook 與週報模板:
 
 *Claude Desktop / Cowork:* **Settings → Plugins → Add marketplace → Add from a
 repository** → 輸入 `eric2q/prisma-sase-plugin` → 安裝 **prisma-sase**。
@@ -182,7 +187,7 @@ repository** → 輸入 `eric2q/prisma-sase-plugin` → 安裝 **prisma-sase**�
 > `run.sh`。功能完全一樣,但**不會自動更新** —— repo 要自己 pull。細節見
 > [`plugin/README.md`](plugin/README.md)(英文)。
 
-## 產生 API Key(建立唯讀 Service Account)
+## API Key 圖解(建立唯讀 Service Account)
 
 Prisma SASE 的「API key」就是一組 Service Account 的 **Client ID + Client
 Secret**,在 **Strata Cloud Manager(SCM)** 建立,共四步。本 plugin 只需
@@ -232,7 +237,7 @@ scope 只綁必要租戶。
 
 **提供步驟 3 記下的值** —— 三條支援路徑,由好到次:
 
-- **`prisma-sase-setup`(建議用這條):** 就是[安裝](#安裝)步驟 2 的引導式設定。
+- **`prisma-sase-setup`(建議用這條):** 就是[第 3 步](#3-執行引導式設定)的引導式設定。
   Secret 進作業系統 keychain,另外三個值進 Local MCP 設定,再加一條啟動時去
   取 secret 的 `PRISMA_SECRET_CMD`。不會有任何機密被寫進檔案。
 - **自己填 Local MCP servers 面板:** 同樣那四個值,當成環境變數填。簡單,
@@ -313,9 +318,25 @@ Desktop 則是 **Settings → Plugins →(該 marketplace)Update**。版本由
 `FIX` / `NEW` / `CHG`,英文)。
 
 **需要固定版本的話。** 在 `--from` 的 URL 後面加上 git ref,自動更新就停在
-那裡:`git+https://github.com/eric2q/prisma-sase-plugin@v0.9.1`。要對客戶
-demo、不希望腳下的東西自己移動時很有用。如果那場 demo 還得**沒網路也能跑**,
-釘 tag 就不夠了 —— 要用完整的 commit SHA,見[離線使用](#離線使用)。
+那裡:`git+https://github.com/eric2q/prisma-sase-plugin@v0.9.2`。要對客戶
+demo、不希望腳下的東西自己移動時很有用。
+
+### 離線使用
+
+自動更新跟「沒網路也能跑」其實是同一個取捨的兩面。這個 server **每次啟動都會
+重新解析 git ref** —— 更新之所以自動就是靠這個 —— 代價是預設情況下它**每次
+啟動**都需要網路,不是只有第一次安裝而已。熱快取不會改變這件事。
+
+如果你要在飯店 Wi-Fi、飛機上、或會擋 GitHub 的網路裡 demo,請釘一個**完整的
+40 字元 commit SHA**:
+
+```
+git+https://github.com/eric2q/prisma-sase-plugin@e666ab410338855b4e03044c7f596e6654645f7e
+```
+
+只有完整 SHA 有用。**釘 tag 是不夠的** —— git tag 是可以被移動的,所以 uv
+仍然會連去遠端確認,`@v0.9.2` 在離線時的失敗方式跟沒釘完全一樣。趁還有網路
+時先把快取暖起來,之後那條釘死的設定就能在完全沒有連線的情況下啟動。
 
 ## 關於託管方式
 
