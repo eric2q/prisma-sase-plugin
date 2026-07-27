@@ -8,7 +8,9 @@ Skill (decision tree, thresholds, runbooks, weekly-report template).
 Ask Claude things like *"how is SASE doing right now — any P1 alerts?"* or
 *"list tunnel status — which are down?"* against your own tenant.
 
-**Four steps, in this order** — environment, credentials, server, Skill:
+## Installation
+
+Four steps, in this order — environment, credentials, server, Skill:
 
 | | Step | What it is |
 |---|---|---|
@@ -16,16 +18,6 @@ Ask Claude things like *"how is SASE doing right now — any P1 alerts?"* or
 | **2** | [Get the API key](#2-get-the-api-key) | A read-only SCM service account |
 | **3** | [Run the guided setup](#3-run-the-guided-setup) | One command: installs the server *and* stores the credentials |
 | **4** | [Add the Skill](#4-add-the-skill-optional) | Optional — runbooks and the report template |
-
-Step 3 is the command everybody quotes, and it really is just the one — it does
-the install and the credentials together:
-
-```bash
-uvx --from git+https://github.com/eric2q/prisma-sase-plugin prisma-sase-setup
-```
-
-It is not, however, the *first* thing you run. Step 1 has to be true before it
-can work at all, and step 2 gives it something to ask you for.
 
 > **Read-only by design** — no write / commit / config-push path exists anywhere.
 
