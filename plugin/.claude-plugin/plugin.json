@@ -1,7 +1,7 @@
 {
   "name": "prisma-sase",
   "description": "Prisma SASE (Prisma Access) ops Skill: when to reach for which read-only tool, how to read the numbers, diagnostic runbooks, and a weekly-report template. Ships the Skill only — the MCP server installs separately as a Local MCP server (uvx) so it updates itself.",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "author": {
     "name": "Eric (Solutions Consultant, Palo Alto Networks)"
   },

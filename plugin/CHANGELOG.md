@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.9.1 — 2026-07-28
+
+Two things a **fresh Windows VM** found in 0.9.0, both invisible on any
+machine that had run an earlier version.
+
+- **FIX (re-running setup, high):** **pressing Enter at the Client Secret
+  prompt no longer disarms a working install.** Re-running `prisma-sase-setup`
+  is ordinary — to change a region, or to repoint an entry at `main` — and at
+  that prompt Enter is how anyone says *"leave the secret alone"*. It did the
+  opposite: `PRISMA_SECRET_CMD` was dropped and a plaintext
+  `<paste your client secret here>` written over it, so a keychain-backed
+  install that worked became one that could not launch. The wizard even
+  printed *"(skipped — no secret stored)"* about a store that held a secret.
+
+  It now asks the store first. With something already in it, the prompt reads
+  *"Enter keeps the stored one"*, Enter preserves the existing
+  `PRISMA_SECRET_CMD`, and typing a new secret still replaces it. With an
+  empty store nothing changed — the visible placeholder is still what you get,
+  because there is nothing to keep.
+
+  Only a *second* run could hit this, which is why every earlier test missed
+  it: they all ran against a machine with an empty store, where the old
+  message was true.
+
+- **DOC (install, high):** git listed as a prerequisite — see below.
+
 ## 0.9.0 — 2026-07-27
 
 **The plugin split in two.** The MCP server is no longer mounted by the

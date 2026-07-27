@@ -637,11 +637,30 @@ def main(argv=None):
 
     secret_cmd = None
     if backend:
-        _header("Client Secret",
-                ["Shown only once, when the service account was created.",
-                 "It goes into the %s -- not into any config file." % backend])
-        secret = _ask_hidden("  > (hidden, nothing echoes): ")
-        if not secret:
+        # Whether one is already there decides what pressing Enter means, so
+        # ask the store before offering the choice.
+        already = bool(_fetch_secret(fetch_argv))
+        lead = ["Shown only once, when the service account was created.",
+                "It goes into the %s -- not into any config file." % backend]
+        if already:
+            lead += ["",
+                     "One is already stored. Enter keeps it; typing a new one",
+                     "replaces it."]
+        _header("Client Secret", lead)
+        prompt = ("  > (hidden -- Enter keeps the stored one): " if already
+                  else "  > (hidden, nothing echoes): ")
+        secret = _ask_hidden(prompt)
+        if not secret and already:
+            # Re-running setup to change a region or repoint at main is
+            # ordinary, and pressing Enter here is the natural way to say
+            # "leave the secret alone". Until 0.9.1 it did the opposite: it
+            # dropped PRISMA_SECRET_CMD and wrote a plaintext placeholder in
+            # its place, replacing a working keychain setup with one that
+            # could not launch -- while reporting "no secret stored" about a
+            # store that had one.
+            print("    keeping the secret already stored (not printed)")
+            secret_cmd = _quote(fetch_argv)
+        elif not secret:
             print("    (skipped -- no secret stored)")
         else:
             _store_secret(backend, secret)

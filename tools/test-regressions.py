@@ -604,6 +604,106 @@ class SetupWizard(unittest.TestCase):
                       "a blank value would start a server that fails later "
                       "with no clue why")
 
+    def _run_main(self, w, stored, typed_secret=""):
+        """Drive main() to completion.
+
+        Returns (written entry, printed text, prompts the secret step used).
+        `stored` is what the keychain already holds -- None for a fresh
+        machine. `typed_secret` is what the user types at the secret prompt;
+        "" means they pressed Enter.
+        """
+        import io
+        import json
+        import unittest.mock as mock
+        home = tempfile.mkdtemp()
+        path = os.path.join(home, "claude_desktop_config.json")
+        answers = iter(["apikey@123.iam.panserviceaccount.com", "", "sg", "y"])
+        held = {"v": stored}
+        prompts = []
+
+        def fake_store(_backend, secret):
+            held["v"] = secret
+
+        def fake_ask_hidden(prompt):
+            prompts.append(prompt)
+            return typed_secret
+
+        out = io.StringIO()
+        try:
+            with mock.patch.object(w, "_backend",
+                                   lambda: ("keychain", ["fake-fetch"])), \
+                    mock.patch.object(w, "_fetch_secret",
+                                      lambda _argv: held["v"]), \
+                    mock.patch.object(w, "_store_secret", fake_store), \
+                    mock.patch.object(w, "_ask_hidden", fake_ask_hidden), \
+                    mock.patch.object(w, "input", create=True,
+                                      side_effect=lambda _p: next(answers)), \
+                    mock.patch.dict(os.environ,
+                                    {"PRISMA_PANEL_CONFIG": path}), \
+                    contextlib.redirect_stdout(out):
+                w.main([])
+            with open(path, encoding="utf-8") as fh:
+                entry = json.load(fh)["mcpServers"]["prisma-sase"]
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+        return entry, out.getvalue(), prompts
+
+    def test_enter_at_the_secret_prompt_keeps_the_stored_secret(self):
+        """Re-running setup must not disarm a working install.
+
+        Changing a region, or repointing an entry at main, means running this
+        again -- and at the secret prompt Enter is how anyone says "leave that
+        one alone". It used to mean the opposite: PRISMA_SECRET_CMD was
+        dropped and a plaintext placeholder written over it, turning a working
+        keychain setup into one that cannot launch. The wizard even said "no
+        secret stored" about a store that had one.
+        """
+        w = self._wizard()
+        entry, shown, _ = self._run_main(
+            w, stored="a-secret-36-chars-long-enough-yes")
+        env = entry["env"]
+        self.assertIn("PRISMA_SECRET_CMD", env,
+                      "pressing Enter threw away the keychain wiring:\n"
+                      + shown)
+        self.assertNotIn("PRISMA_CLIENT_SECRET", env,
+                         "a placeholder replaced a working secret command")
+        self.assertNotIn("no secret stored", shown,
+                         "it reported an empty store while holding a secret")
+
+    def test_enter_with_an_empty_store_still_writes_the_placeholder(self):
+        """The other half of the same branch, and the older behaviour.
+
+        With nothing stored there is nothing to keep, so the visible
+        placeholder is right -- it is what stops a blank value from starting a
+        server that fails later with no clue why.
+        """
+        w = self._wizard()
+        entry, shown, _ = self._run_main(w, stored=None)
+        env = entry["env"]
+        self.assertIn("<paste", env.get("PRISMA_CLIENT_SECRET", ""), shown)
+        self.assertNotIn("PRISMA_SECRET_CMD", env)
+
+    def test_typing_a_new_secret_replaces_the_stored_one(self):
+        """Keeping on Enter must not make the store unchangeable."""
+        w = self._wizard()
+        entry, shown, _ = self._run_main(w, stored="old-value",
+                                         typed_secret="brand-new-value")
+        self.assertIn("PRISMA_SECRET_CMD", entry["env"])
+        self.assertIn("stored and verified", shown)
+        self.assertIn("length %d" % len("brand-new-value"), shown,
+                      "the readback reported the old secret:\n" + shown)
+
+    def test_the_prompt_says_what_enter_will_do(self):
+        """Only when there is something to keep -- otherwise it is a lie."""
+        w = self._wizard()
+        _, _, kept = self._run_main(w, stored="x")
+        self.assertTrue(any("keeps" in p for p in kept),
+                        "the prompt does not say Enter keeps it: %s" % kept)
+        _, _, fresh = self._run_main(w, stored=None)
+        self.assertFalse(any("keeps" in p for p in fresh),
+                         "it offers to keep a secret that is not there: %s"
+                         % fresh)
+
     def test_entry_launches_through_uvx_from_git(self):
         """Anything else loses the auto-update this architecture exists for."""
         w = self._wizard()
