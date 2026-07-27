@@ -1000,6 +1000,79 @@ class CrossPlatform(unittest.TestCase):
                              os.path.join(r"C:\Users\e\AppData\Roaming",
                                           "Claude"))
 
+    def _fake_win_appdata(self, w, roaming=(), local=()):
+        """A Windows AppData tree with the given app dirs under each base.
+
+        Returns (roaming_base, local_base, {dirname: config path}). Only dirs
+        named here exist, so a listdir of the other base returns nothing.
+        """
+        import unittest.mock as mock
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        r = os.path.join(root, "Roaming")
+        l = os.path.join(root, "Local")
+        made = {}
+        for base, names in ((r, roaming), (l, local)):
+            os.makedirs(base, exist_ok=True)
+            for name in names:
+                d = os.path.join(base, name)
+                os.makedirs(d)
+                p = os.path.join(d, "claude_desktop_config.json")
+                with open(p, "w", encoding="utf-8") as fh:
+                    fh.write('{"mcpServers": {}}\n')
+                made[name] = p
+        d = mock.patch.dict(w.os.environ,
+                            {"APPDATA": r, "LOCALAPPDATA": l})
+        d.start()
+        self.addCleanup(d.stop)
+        w.os.environ.pop("PRISMA_PANEL_CONFIG", None)
+        return r, l, made
+
+    def test_a_config_under_localappdata_is_found(self):
+        """Field report, 2026-07-27: a Claude-3p install on Windows kept its
+        claude_desktop_config.json under %LOCALAPPDATA%, not %APPDATA%.
+
+        Only Roaming was searched, so the wizard would have reported success
+        into a Roaming\\Claude file that no running app reads -- the same
+        silent failure the Claude-3p suffix handling exists to prevent, one
+        directory level up. The suffix was handled; the parent was assumed.
+        """
+        w = self._wizard("Windows")
+        _, _, made = self._fake_win_appdata(w, local=("Claude-3p",))
+        self.assertEqual(
+            w._panel_config_path(), made["Claude-3p"],
+            "the only config on the machine is under LOCALAPPDATA and it was "
+            "not found")
+
+    def test_plain_claude_under_localappdata_is_found_too(self):
+        """Not just the suffixed name. A standard-named install in the
+        non-standard base is the same trap, and the Roaming\\Claude path is
+        always in the candidate list whether or not anything is there -- so
+        the search must not stop at the first name it recognises."""
+        w = self._wizard("Windows")
+        _, _, made = self._fake_win_appdata(w, local=("Claude",))
+        self.assertEqual(w._panel_config_path(), made["Claude"])
+
+    def test_both_bases_are_searched_and_the_recent_one_wins(self):
+        w = self._wizard("Windows")
+        _, _, made = self._fake_win_appdata(
+            w, roaming=("Claude",), local=("Claude-3p",))
+        found = w._existing_panel_configs()
+        self.assertEqual(sorted(found), sorted(made.values()),
+                         "both bases must be searched, not just one")
+        # Make the Roaming one clearly newer; it should then be preferred.
+        os.utime(made["Claude"], (2 ** 31 - 1, 2 ** 31 - 1))
+        self.assertEqual(w._panel_config_path(), made["Claude"])
+
+    def test_roaming_claude_is_still_the_default_when_nothing_exists(self):
+        """A fresh machine must not start writing to Local. Roaming is where
+        Electron's userData resolves, so it stays the first candidate."""
+        w = self._wizard("Windows")
+        r, _, _ = self._fake_win_appdata(w)
+        self.assertEqual(w._panel_config_path(),
+                         os.path.join(r, "Claude",
+                                      "claude_desktop_config.json"))
+
     def test_the_dpapi_blob_is_local_not_roaming(self):
         """DPAPI ties the blob to this user on this machine, so roaming it
         would only propagate a file the other machine cannot decrypt."""

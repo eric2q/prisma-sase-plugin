@@ -101,13 +101,33 @@ print(json.dumps({
     'backend': w._backend()[0],
     'cmd': w._quote(w._backend()[1]) if w._backend()[0] == 'dpapi' else '',
     'path': w._panel_path(),
-    'config': w._panel_config_dirs()[0],
     'uvxargs': ' '.join(w._uvx_args()),
     'machine': w.platform.machine(),
 }))
 "@
 $g = & $py.Source -c $gen | ConvertFrom-Json
 $blob = $g.blob
+
+# Asked separately, and deliberately so: the block above redirects LOCALAPPDATA
+# to a temp directory to keep the DPAPI blob out of the real one, and the panel
+# search reads LOCALAPPDATA too. Sharing that process would have the search look
+# in the temp tree and find nothing, every time, on every machine.
+#
+# It reports what *exists*, not what would be computed. The computed path was
+# all this script printed before, and it printed Roaming\Claude on a machine
+# whose only config was in Local -- a wrong answer that eleven green checks
+# said nothing about, because none of them ever looked at the disk.
+$scan = @"
+import sys, os, json
+sys.path.insert(0, r'$repo\src')
+from prisma_sase_mcp import setup_wizard as w
+print(json.dumps({
+    'dirs': w._panel_config_dirs(),
+    'found': w._existing_panel_configs(),
+    'target': w._panel_config_path(),
+}))
+"@
+$c = & $py.Source -c $scan | ConvertFrom-Json
 
 Write-Host "-- what the wizard reports on this machine --"
 # platform.machine(), not $env:PROCESSOR_ARCHITECTURE. The two differ on ARM
@@ -118,8 +138,13 @@ Write-Host "-- what the wizard reports on this machine --"
 Write-Host "  backend      : $($g.backend)"
 Write-Host "  machine      : $($g.machine)   (process: $env:PROCESSOR_ARCHITECTURE)"
 Write-Host "  uvx args     : $($g.uvxargs)"
-Write-Host "  config dir   : $($g.config)"
 Write-Host "  panel PATH   : $($g.path)"
+if ($c.found) {
+    Write-Host "  configs found: $($c.found -join "`n                 ")"
+    Write-Host "  would write  : $($c.target)"
+} else {
+    Write-Host "  configs found: (none) -- would create $($c.target)"
+}
 Write-Host ""
 
 Write-Host "-- checks --"
@@ -127,6 +152,43 @@ Write-Host "-- checks --"
 Check "backend is dpapi" {
     if ($g.backend -eq 'dpapi') { $true }
     else { "got '$($g.backend)' -- is powershell.exe on PATH?" }
+}
+
+Check "every config on this machine is one the wizard can see" {
+    # Independent of the wizard: walk AppData directly and compare. Asking the
+    # wizard whether it found everything would only ever confirm its own view,
+    # which is exactly how a Local-only install stayed invisible while every
+    # check passed.
+    #
+    # A miss here is the silent one -- the wizard writes to a file no running
+    # app reads, reports success, and no tools appear with nothing to explain
+    # why -- so it fails rather than warns.
+    $real = @()
+    foreach ($base in @($env:APPDATA, $env:LOCALAPPDATA)) {
+        if (-not $base) { continue }
+        Get-ChildItem -LiteralPath $base -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq 'Claude' -or $_.Name -like 'Claude-*' } |
+            ForEach-Object {
+                $f = Join-Path $_.FullName 'claude_desktop_config.json'
+                if (Test-Path -LiteralPath $f) { $real += $f }
+            }
+    }
+    if (-not $real) {
+        Write-Host -NoNewline "(no Claude config on this machine) "
+        return $true
+    }
+    # -notin needs PowerShell 3+, which is fine, but -contains on the left
+    # reads the same and matches the 5.1 style used elsewhere here.
+    $missed = @($real | Where-Object { -not ($c.found -contains $_) })
+    if (-not $missed) {
+        Write-Host -NoNewline "($($real.Count) found) "
+        $true
+    } else {
+        ("the wizard does not search where these live:`n  " +
+         ($missed -join "`n  ") +
+         "`nit would write to $($c.target) instead, which the running app " +
+         "may never read")
+    }
 }
 
 Check "store script encrypts a secret" {

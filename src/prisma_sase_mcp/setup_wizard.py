@@ -280,21 +280,39 @@ def _panel_config_dirs():
     machine can carry several side by side. Writing blindly to "Claude" on
     such a machine puts the entry in a file the running app never reads --
     the setup reports success and no tools appear.
+
+    Nor is the parent directory fixed on Windows. Electron's app.getPath
+    ('userData') resolves to %APPDATA% (Roaming), which is where the standard
+    build keeps its config; a Claude-3p install was found in the field under
+    %LOCALAPPDATA% instead. Both are searched, because guessing one and
+    missing produces exactly the silent failure above.
     """
     home = os.path.expanduser("~")
     if platform.system() == "Darwin":
-        base = os.path.join(home, "Library", "Application Support")
+        bases = [os.path.join(home, "Library", "Application Support")]
     elif platform.system() == "Windows":
-        base = os.environ.get("APPDATA", home)
+        import ntpath      # os.path is posixpath when simulating Windows
+        bases = [os.environ.get("APPDATA")
+                 or ntpath.join(home, "AppData", "Roaming"),
+                 os.environ.get("LOCALAPPDATA")
+                 or ntpath.join(home, "AppData", "Local")]
     else:
-        base = os.path.join(home, ".config")
-    dirs = [os.path.join(base, "Claude")]
-    try:
-        for name in sorted(os.listdir(base)):
-            if name.startswith("Claude-"):
-                dirs.append(os.path.join(base, name))
-    except OSError:
-        pass
+        bases = [os.path.join(home, ".config")]
+
+    dirs = [os.path.join(bases[0], "Claude")]
+    for base in bases:
+        try:
+            names = sorted(os.listdir(base))
+        except OSError:
+            continue
+        for name in names:
+            # "Claude" only from a non-primary base -- the primary one is
+            # already first in the list, and it must stay first: it is the
+            # default written on a machine with no config at all.
+            if name == "Claude" or name.startswith("Claude-"):
+                d = os.path.join(base, name)
+                if d not in dirs:
+                    dirs.append(d)
     return dirs
 
 
