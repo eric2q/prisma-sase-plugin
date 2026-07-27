@@ -165,6 +165,22 @@ repository** → 輸入 `eric2q/prisma-sase-plugin` → 安裝 **prisma-sase**�
 /plugin install prisma-sase@prisma-sase
 ```
 
+> **出現 `Plugin "prisma-sase" not found in marketplace "prisma-sase"`?**
+> 表示你在 0.9.0 之前就加過這個 marketplace,本機的複本裡還是舊的
+> `prisma-sase-mac` / `-windows` / `-linux` 三個項目。`marketplace add` 在複本
+> 已存在時不會做任何事,所以不會更新。請先更新再安裝:
+>
+> ```
+> /plugin marketplace update prisma-sase
+> ```
+>
+> 另外請移除舊項目 —— 它會自帶一個 MCP server,與第 3 步的 Local MCP 設定
+> 重複:
+>
+> ```
+> /plugin uninstall prisma-sase-mac@prisma-sase
+> ```
+
 > **沒有 uv,也裝不了?** 還有一條只需要 Python ≥ 3.10 的 venv 備援路徑:
 > clone 本 repo 後執行 `bash src/prisma_sase_mcp/install.sh`
 > (Windows:`src\prisma_sase_mcp\install.bat`),再把 Local MCP 設定指向

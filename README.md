@@ -175,6 +175,23 @@ repository** → `eric2q/prisma-sase-plugin` → install **prisma-sase**.
 /plugin install prisma-sase@prisma-sase
 ```
 
+> **`Plugin "prisma-sase" not found in marketplace "prisma-sase"`?** You added
+> this marketplace before 0.9.0, so the local clone still lists the old
+> `prisma-sase-mac` / `-windows` / `-linux` entries. `marketplace add` does
+> nothing when the clone already exists, so it never refreshes. Update it, then
+> install:
+>
+> ```
+> /plugin marketplace update prisma-sase
+> ```
+>
+> Also uninstall the old entry — it mounts an MCP server of its own, which
+> duplicates the Local MCP one from step 3:
+>
+> ```
+> /plugin uninstall prisma-sase-mac@prisma-sase
+> ```
+
 > **No uv, and cannot install it?** There is a venv fallback that needs only
 > Python ≥ 3.10: clone the repo and run `bash src/prisma_sase_mcp/install.sh`
 > (Windows: `src\prisma_sase_mcp\install.bat`), then point a Local MCP entry at
