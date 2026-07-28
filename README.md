@@ -10,14 +10,43 @@ Ask Claude things like *"how is SASE doing right now — any P1 alerts?"* or
 
 ## Installation
 
-Four steps, in this order — environment, credentials, server, Skill:
+**Shortest path: install the Skill first and let it walk you through the
+rest.** It needs only `git`, and it carries the setup instructions — so once
+it is in, you can ask Claude to do the installing.
+
+*Claude Code (CLI):*
+
+```
+/plugin marketplace add eric2q/prisma-sase-plugin
+/plugin install prisma-sase@prisma-sase
+```
+
+*Claude Desktop / Cowork:* **Settings → Plugins → Add marketplace → Add from a
+repository** → `eric2q/prisma-sase-plugin` → install **prisma-sase**.
+
+Then just ask:
+
+> *"help me install prisma sase"*
+
+Claude walks the remaining steps, asks for the four credential values when it
+needs them, and tells you when to restart. Having the Skill without the server
+is a normal in-between state, not a broken install — no tenant tools appear
+until the server is added.
+
+<details>
+<summary><b>Prefer to do it yourself? The same four steps, by hand.</b></summary>
 
 | | Step | What it is |
 |---|---|---|
 | **1** | [Prerequisites](#1-prerequisites) | `uv` and `git` — two commands, one check |
 | **2** | [Get the API key](#2-get-the-api-key) | A read-only SCM service account |
 | **3** | [Run the guided setup](#3-run-the-guided-setup) | One command: installs the server *and* stores the credentials |
-| **4** | [Add the Skill](#4-add-the-skill-optional) | Optional — runbooks and the report template |
+| **4** | [Add the Skill](#4-add-the-skill) | Runbooks, thresholds, the report template |
+
+Step 4 is the same install shown above — do it first or last, it makes no
+difference to the result.
+
+</details>
 
 > **Read-only by design** — no write / commit / config-push path exists anywhere.
 
@@ -45,8 +74,11 @@ Two parts, installed separately:
 | **MCP server** | 6 read-only query tools | a **Local MCP server** entry that runs `uvx` | automatically, on every app launch |
 | **`prisma-sase-ops` Skill** | decision tree, thresholds, runbooks, weekly-report template | the plugin marketplace | `/plugin marketplace update prisma-sase` |
 
-The server works on its own. The Skill is optional and makes Claude better at
-choosing between the tools and reading what they return.
+**Either half stands alone, and each is useful without the other.** The server
+answers tenant questions with no Skill installed. The Skill makes Claude better
+at choosing between the tools and reading what they return — and, with no
+server yet, it is what walks you through installing one. That is why the
+shortest install starts with it.
 
 How the 6 tools map onto PANW's full API surface, and what a read-only Phase 2
 could add:
@@ -160,10 +192,15 @@ that copies your home directory — so the secret stays out of it.
 **Then restart the Claude app completely** (macOS: ⌘Q — closing the window does
 not relaunch MCP servers) and ask it about your tenant. The tools now work.
 
-## 4. Add the Skill (optional)
+## 4. Add the Skill
+
+*Already done it at the top? Skip this — it is the same install.*
 
 The Skill adds the judgement around the tools — which one to reach for, what
-the numbers mean, the diagnostic runbooks and the weekly-report template:
+the numbers mean, the diagnostic runbooks and the weekly-report template. It
+also carries the setup and troubleshooting guidance, which is why installing
+it **first** is the shortest route: with the Skill loaded you can ask Claude to
+perform the rest of this page.
 
 *Claude Desktop / Cowork:* **Settings → Plugins → Add marketplace → Add from a
 repository** → `eric2q/prisma-sase-plugin` → install **prisma-sase**.

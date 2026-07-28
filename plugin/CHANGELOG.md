@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.9.7 — 2026-07-28
+
+Docs only. 0.9.6 taught the Skill to guide its own installation; the READMEs
+still described the opposite order.
+
+- **CHG (docs):** installation now **leads with the Skill**. It needs only
+  `git` (the marketplace entry declares no server and no command), it carries
+  the setup walkthrough, and since 0.9.6 it loads on "how do I install this" —
+  so the fastest route is: install the Skill, then ask Claude to do the rest.
+  The manual four-step path is unchanged and still documented, now folded into
+  a collapsible section for anyone who prefers it.
+- **CHG (docs):** the Skill is no longer labelled **"optional"**. Both halves
+  stand alone and each is useful without the other: the server answers tenant
+  questions with no Skill, and the Skill installs the server with no server.
+  Calling one optional understated what it does and buried the shortest path.
+- **CHG (docs):** step 4 says plainly that it is the same install shown at the
+  top — do it first or last, same result. Both READMEs updated in step; all 18
+  in-page anchors verified after the heading changes.
+
 ## 0.9.6 — 2026-07-28
 
 Skill only; the server is unchanged. Four gaps the 0.9.0 split left behind,

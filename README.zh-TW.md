@@ -10,14 +10,40 @@ Skill(工具決策樹、判讀閾值、診斷 runbook、週報模板)。安裝�
 
 ## 安裝
 
-四個步驟,依此順序 —— 環境、憑證、server、Skill:
+**最快的路:先裝 Skill,讓它帶你走完剩下的。** 它只需要 `git`,而且本身就
+帶著安裝說明 —— 裝好之後,你可以直接請 Claude 幫你裝。
+
+*Claude Code(CLI):*
+
+```
+/plugin marketplace add eric2q/prisma-sase-plugin
+/plugin install prisma-sase@prisma-sase
+```
+
+*Claude Desktop / Cowork:* **Settings → Plugins → Add marketplace → Add from a
+repository** → 輸入 `eric2q/prisma-sase-plugin` → 安裝 **prisma-sase**。
+
+然後直接問:
+
+> *「幫我安裝 prisma sase」*
+
+Claude 會帶你走完剩下的步驟,需要憑證時會問你那四個值,也會告訴你何時該重
+啟。**只有 Skill、還沒有 server 是正常的中間狀態**,不是壞掉 —— 在 server
+裝好之前,查詢租戶的工具不會出現。
+
+<details>
+<summary><b>想自己來?同樣四個步驟,手動版。</b></summary>
 
 | | 步驟 | 內容 |
 |---|---|---|
 | **1** | [事前需求](#1-事前需求) | `uv` 與 `git` —— 兩道安裝指令、一道確認 |
 | **2** | [產生 API Key](#2-產生-api-key) | SCM 的唯讀 service account |
 | **3** | [執行引導式設定](#3-執行引導式設定) | 一行指令:安裝 server 並寫入憑證 |
-| **4** | [裝上 Skill](#4-裝上-skill選用) | 選用 —— 診斷 runbook 與週報模板 |
+| **4** | [裝上 Skill](#4-裝上-skill) | 診斷 runbook、判讀閾值與週報模板 |
+
+第 4 步就是上面那段安裝 —— 先做或後做都一樣,結果相同。
+
+</details>
 
 > **設計上即為唯讀** —— 整個專案不存在任何寫入 / commit / 推送設定的程式路徑。
 
@@ -42,8 +68,10 @@ Skill(工具決策樹、判讀閾值、診斷 runbook、週報模板)。安裝�
 | **MCP server** | 6 個唯讀查詢工具 | 一筆執行 `uvx` 的 **Local MCP server** 設定 | 自動,每次啟動 app 時 |
 | **`prisma-sase-ops` Skill** | 工具決策樹、判讀閾值、診斷 runbook、週報模板 | plugin marketplace | `/plugin marketplace update prisma-sase` |
 
-Server 單獨就能運作。Skill 為選用,可以讓 Claude 更會挑工具、更會判讀回傳的
-數字。
+**兩半各自都能單獨運作,而且缺了另一半也各有用處。** 沒裝 Skill,server 一樣
+能回答租戶問題;Skill 則讓 Claude 更會挑工具、更會判讀回傳的數字 —— 而在還
+沒有 server 的時候,帶你把 server 裝起來的就是它。這也是為什麼最省事的安裝
+是從 Skill 開始。
 
 這 6 個工具對應到 PANW 完整 API 版圖的哪個位置、唯讀的 Phase 2 還能加什麼:
 [Prisma SASE API catalog](plugin/skills/prisma-sase-ops/references/api-catalog.md)(英文)。
@@ -150,10 +178,14 @@ Time Machine 以及任何會複製家目錄的備份一起被帶走,所以 secre
 **接著完全重啟 Claude 應用程式**(macOS 按 ⌘Q —— 只關視窗不會重新啟動 MCP
 server),然後就能開始問你的租戶狀況。工具到這裡已經可以使用。
 
-## 4. 裝上 Skill(選用)
+## 4. 裝上 Skill
+
+*已經在最上面裝過了?可以跳過 —— 這就是同一個安裝。*
 
 Skill 補上的是圍繞這些工具的判斷力 —— 什麼情況該用哪個工具、數字代表什麼
-意思、診斷 runbook 與週報模板:
+意思、診斷 runbook 與週報模板。它同時也帶著安裝與疑難排解的說明,這正是
+**先裝它**最省事的原因:Skill 一旦載入,你就可以請 Claude 幫你完成本頁其餘
+的步驟。
 
 *Claude Desktop / Cowork:* **Settings → Plugins → Add marketplace → Add from a
 repository** → 輸入 `eric2q/prisma-sase-plugin` → 安裝 **prisma-sase**。
