@@ -191,6 +191,9 @@ repository** → `eric2q/prisma-sase-plugin` → install **prisma-sase**.
 > ```
 > /plugin uninstall prisma-sase-mac@prisma-sase
 > ```
+>
+> `Plugin "prisma-sase-mac@prisma-sase" not found in installed plugins` here
+> means it is already gone — nothing to do, carry on.
 
 > **No uv, and cannot install it?** There is a venv fallback that needs only
 > Python ≥ 3.10: clone the repo and run `bash src/prisma_sase_mcp/install.sh`

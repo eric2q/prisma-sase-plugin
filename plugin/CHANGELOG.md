@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.5 — 2026-07-28
+
+Docs only; no behaviour change.
+
+- **CHG (docs):** the 0.8.x upgrade note said to uninstall the old
+  `prisma-sase-mac` entry, but on a machine that had already dropped it from
+  the plugin registry that command answers `not found in installed plugins`.
+  Verified on a real 0.8.4 install: the leftover is an **empty directory** —
+  no code, no launcher, nothing referencing it — so there is no duplicate MCP
+  server to worry about and the error is cosmetic. Both READMEs now say so,
+  instead of leaving a red error at the end of an otherwise clean upgrade.
+
 ## 0.9.4 — 2026-07-28
 
 **The marketplace manifest was missing `$schema` and carried a `strict` flag it

@@ -180,6 +180,9 @@ repository** → 輸入 `eric2q/prisma-sase-plugin` → 安裝 **prisma-sase**�
 > ```
 > /plugin uninstall prisma-sase-mac@prisma-sase
 > ```
+>
+> 這一步若出現 `Plugin "prisma-sase-mac@prisma-sase" not found in installed
+> plugins`,代表舊項目已經清掉了 —— 不用處理,繼續下一步即可。
 
 > **沒有 uv,也裝不了?** 還有一條只需要 Python ≥ 3.10 的 venv 備援路徑:
 > clone 本 repo 後執行 `bash src/prisma_sase_mcp/install.sh`
