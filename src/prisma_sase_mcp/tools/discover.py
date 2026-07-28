@@ -23,7 +23,7 @@ An empty/omitted SELECT can make an EXISTING view 400 ("SELECT list must not
 be empty"), which previously misclassified real views as unavailable.
 """
 import config
-from client import SaseClient, SaseApiError, records_of
+from client import SaseClient, SaseApiError, mock_notice, records_of
 
 # (kind, resource, view) candidates, most-likely first.
 # Round-2 live results (the live tenant (sg)): users/users_list ✅ (time_filter),
@@ -295,7 +295,17 @@ def discover_insights(kind=None, tsg_id=None, region=None):
             "references/endpoints.md, section 'When discovery finds nothing'."
             % ", ".join(missing))
 
+    out_mock = mock_notice()
+    if out_mock:
+        # Discovery is the one tool whose whole output is resource NAMES. In
+        # mock mode those are the canned set, not this tenant's -- adopting
+        # them into PRISMA_INSIGHTS_MAP would configure a real install from
+        # sample data.
+        notes.insert(0, out_mock + " The resource/view names below are the "
+                     "sample set; do NOT adopt them into PRISMA_INSIGHTS_MAP.")
+
     return {"ok": True,
+            **({"mock_mode": True, "mock_notice": out_mock} if out_mock else {}),
             "control_probe_ok": control_ok,
             # None when no 2.0-family probe ran for this kind.
             "control_sase_v2_ok": control_sase_v2_ok,

@@ -73,6 +73,20 @@ def get_sase_status(tsg_id=None, region=None):
     headline, checks = _headline(sections)
     out = {"ok": True, "plugin_version": config.PLUGIN_VERSION,
            "headline": headline, "checks": checks, "sections": sections}
+    # Sample data must announce itself HERE, not only in --selfcheck. The
+    # conversation never sees selfcheck; it sees this dict. Unlabelled, "1
+    # critical alert(s); 1 tunnel(s) down" is indistinguishable from a real
+    # tenant in trouble -- and a demo number quoted as fact is the one
+    # mistake this tool must never enable. The headline is prefixed too,
+    # because a reader who skims takes only that.
+    if config.MOCK_MODE:
+        out["mock_mode"] = True
+        out["mock_notice"] = (
+            "SAMPLE DATA -- PRISMA_MOCK is set, so no tenant was queried. "
+            "These figures are built-in examples. Never report them as this "
+            "tenant's state. Unset PRISMA_MOCK and restart the app for real "
+            "answers.")
+        out["headline"] = "[SAMPLE DATA] " + out["headline"]
     # When every check failed for the same host-side reason, say it once at the
     # top. Desktop users reach only the tools, so a per-section hint repeated
     # four times is the whole story they get -- and "4/4 checks failed" reads

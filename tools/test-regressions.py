@@ -1835,6 +1835,74 @@ class KeychainSetupScript(unittest.TestCase):
         self.assertEqual(self._run("--remove").returncode, 0)
 
 
+class MockDataIsLabelled(unittest.TestCase):
+    """0.9.8 -- sample data must announce itself in EVERY tool's output.
+
+    Through 0.9.7 only `--selfcheck` said `mock mode: ON`. The conversation
+    never sees selfcheck; it sees the tool's dict -- and an unlabelled
+    "1 critical alert(s); 1 tunnel(s) down" is indistinguishable from a real
+    tenant in trouble. A demo figure repeated as fact is the one failure this
+    mode must never enable, so the label travels with the data.
+    """
+
+    TOOLS = ("from tools.status import get_sase_status\n"
+             "from tools.alerts import query_alerts\n"
+             "from tools.networks import get_remote_networks\n"
+             "from tools.users import get_connected_users\n"
+             "from tools.adem import get_user_experience\n"
+             "from tools.discover import discover_insights\n"
+             "TOOLS = (get_sase_status, query_alerts, get_remote_networks,\n"
+             "         get_connected_users, get_user_experience,\n"
+             "         discover_insights)\n")
+
+    def _run(self, body, mock):
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith("PRISMA_")}
+        if mock:
+            env["PRISMA_MOCK"] = "1"
+        code = "import sys, json; sys.path.insert(0, %r)\n%s%s" % (
+            MCP, self.TOOLS, body)
+        out = subprocess.run([sys.executable, "-c", code], env=env,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        self.assertEqual(out.returncode, 0, out.stdout.decode())
+        return out.stdout.decode().strip()
+
+    def test_every_tool_flags_mock_mode(self):
+        body = ("bad = [f.__name__ for f in TOOLS if not f().get('mock_mode')]\n"
+                "print(','.join(bad) if bad else 'ALL_LABELLED')")
+        self.assertEqual(
+            self._run(body, mock=True), "ALL_LABELLED",
+            "these tools returned sample data with no mock_mode flag; in a "
+            "conversation that is indistinguishable from live tenant data")
+
+    def test_every_tool_carries_a_human_readable_notice(self):
+        body = ("bad = [f.__name__ for f in TOOLS\n"
+                "       if 'SAMPLE DATA' not in (f().get('mock_notice') or '')]\n"
+                "print(','.join(bad) if bad else 'ALL_NOTICED')")
+        self.assertEqual(self._run(body, mock=True), "ALL_NOTICED",
+                         "a boolean flag alone is easy to overlook -- each "
+                         "response needs the plain-language warning too")
+
+    def test_the_status_headline_itself_is_marked(self):
+        """A reader who skims takes only the headline."""
+        body = "print(get_sase_status()['headline'])"
+        self.assertTrue(self._run(body, mock=True).startswith("[SAMPLE DATA]"))
+
+    def test_discovery_warns_against_adopting_sample_names(self):
+        """Its output is resource NAMES -- adopting them would configure a
+        real install from canned data."""
+        body = ("n = ' '.join(discover_insights().get('notes') or [])\n"
+                "print('WARNED' if 'PRISMA_INSIGHTS_MAP' in n and 'SAMPLE' in n"
+                " else 'NOT_WARNED')")
+        self.assertEqual(self._run(body, mock=True), "WARNED")
+
+    def test_live_mode_carries_no_mock_keys(self):
+        """The label must never appear when the data is real."""
+        body = ("import config\n"
+                "print('LEAK' if config.MOCK_MODE else 'CLEAN')")
+        self.assertEqual(self._run(body, mock=False), "CLEAN")
+
+
 class MockSmokeTest(unittest.TestCase):
     """Every tool returns ok=True offline -- catches import/shape breakage."""
 

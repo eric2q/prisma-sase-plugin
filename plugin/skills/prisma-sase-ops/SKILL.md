@@ -95,6 +95,28 @@ Every tool takes optional `tsg_id` and `region` to target a specific tenant
    *would* look like, which is often what a demo actually needs — offer it as a
    demo aid, never as tenant data.
 
+## `PRISMA_MOCK` — what it is for, and what it is not
+
+With `PRISMA_MOCK=1` every tool answers from built-in sample data instead of
+calling the API: no credentials, no tenant, no network. Responses keep the real
+shape (same fields, same units, the same aggregate-vs-per-alert quirks), so
+they travel the identical code path a live call does. Three times it is worth
+suggesting:
+
+- **No API key yet.** Approval can take days; this shows what the tools return
+  in the meantime.
+- **A demo.** Showing the tools without a real tenant's alerts and IPs on
+  screen.
+- **Splitting a fault in two** — the one that gets forgotten. When a tool
+  misbehaves, re-run it under `PRISMA_MOCK=1`: still wrong → the plugin;
+  fine → the tenant, credentials, or network. That single check saves
+  debugging the wrong half.
+
+Mock output is always labelled (`mock mode: ON` in `--selfcheck`, and in
+`get_sase_status`). **Never present a sample number as the user's tenant**,
+never mix mock and live figures in one answer, and when someone wants real data
+say plainly that the variable has to come out and the app restart.
+
 When a request spans several of these, start with `get_sase_status`, then fire
 the specific tools **in parallel** for the parts that need detail.
 

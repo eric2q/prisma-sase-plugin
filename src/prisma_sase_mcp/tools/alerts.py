@@ -19,7 +19,8 @@ Strategy:
      detail view keep working unchanged).
 """
 import config
-from client import SaseClient, SaseApiError, records_of, slim_records, verify_note
+from client import (SaseClient, SaseApiError, mock_notice, records_of,
+                    slim_records, verify_note)
 
 _WHITELIST = ["alert_id", "severity", "severity_id", "state", "category",
               "message", "raised_time", "updated_time", "location"]
@@ -201,6 +202,10 @@ def query_alerts(severity=None, state=None, hours=24, limit=config.DEFAULT_LIMIT
     note = verify_note(raw)
     if note:
         out["_verify"] = note
+    mock = mock_notice()
+    if mock:
+        out["mock_mode"] = True
+        out["mock_notice"] = mock
     return out
 
 
@@ -248,6 +253,10 @@ def _detail_output(raw, records, hours, limit, source):
     note = verify_note(raw)
     if note:
         out["_verify"] = note
+    mock = mock_notice()
+    if mock:
+        out["mock_mode"] = True
+        out["mock_notice"] = mock
     return out
 
 

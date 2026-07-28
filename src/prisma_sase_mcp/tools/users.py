@@ -1,6 +1,7 @@
 """get_connected_users -- connected Mobile Users via Insights 3.0 (read-only)."""
 import config
-from client import SaseClient, SaseApiError, records_of, slim_records, verify_note
+from client import (SaseClient, SaseApiError, mock_notice, records_of,
+                    slim_records, verify_note)
 
 _WHITELIST = ["location", "region", "connected_users"]
 
@@ -61,4 +62,8 @@ def get_connected_users(hours=24, limit=config.DEFAULT_LIMIT, tsg_id=None, regio
     note = verify_note(raw)
     if note:
         out["_verify"] = note
+    mock = mock_notice()
+    if mock:
+        out["mock_mode"] = True
+        out["mock_notice"] = mock
     return out

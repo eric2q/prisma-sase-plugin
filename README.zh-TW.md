@@ -115,7 +115,7 @@ uv 會自備直譯器(macOS 內建為 3.9,`fastmcp` 需要 3.10)。
 |---|---|---|
 | **uv**(提供 `uvx`) | 所有平台底下每一道指令的啟動器,也負責提供 Python 直譯器 | 終端機出現 `uvx: command not found`;若 app 那邊已經設定好了,則是 MCP server 無聲無息起不來 |
 | **git** | 每一道指令都是 `--from git+https://…`,uv 得叫 git 去解 ref、抓原始碼 | uv 停在 *"Git executable not found"*。**僅安裝期需要**,版本進了快取之後,啟動就不會再叫 git |
-| **能連 GitHub 與 PyPI 的網路** | uvx 第一次啟動時抓本 repo 與依賴套件,而且**每一次**啟動都會重新確認 ref。公司 proxy 環境請設 `HTTPS_PROXY=http://proxy:port` | 一行 `Updating … (HEAD)` 之後接 *"Failed to resolve"* / *"Git operation failed"*。熱快取無法避免,見[離線使用](#離線使用) |
+| **能連 GitHub 與 PyPI 的網路** | uvx 第一次啟動時抓本 repo 與依賴套件,而且**每一次**啟動都會重新確認 ref。公司 proxy 環境請設 `HTTPS_PROXY=http://proxy:port` | 一行 `Updating … (HEAD)` 之後接 *"Failed to resolve"* / *"Git operation failed"*。熱快取無法避免,見[在沒有網路的環境啟動](#在沒有網路的環境啟動) |
 | **SCM 唯讀 service account** | 工具拿去認證的 Client ID / Secret / TSG | 那是[第 2 步](#2-產生-api-key),第 1 步用不到 |
 
 uv 的完整安裝選項:[docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/)。
@@ -123,11 +123,12 @@ macOS 若不想用 Homebrew,`xcode-select --install` 也會裝上 git。
 
 </details>
 
-**還沒有 Prisma 租戶?** 設 `PRISMA_MOCK=1`,所有工具會用擬真範例資料回答,
-不需要憑證、也不需要網路。
+**還沒有 Prisma 租戶?** 見[範例資料模式(`PRISMA_MOCK`)](#範例資料模式prisma_mock)
+—— 所有工具改用內建範例資料回答,不需要憑證、也不需要租戶。適合在還沒拿到
+API Key 前先試用,或是在不暴露真實租戶的情況下做示範。
 
-**要在沒有網路的環境執行**需要多一個步驟,因為 server 每次啟動都會重新解析
-git ref。見「更新」底下的[離線使用](#離線使用)。
+**要在沒有網路的環境執行**是**另一件事**,需要多一個步驟,因為 server 每次
+啟動都會重新解析 git ref。見「更新」底下的[在沒有網路的環境啟動](#在沒有網路的環境啟動)。
 
 ## 2. 產生 API Key
 
@@ -356,7 +357,38 @@ Desktop 則是 **Settings → Plugins →(該 marketplace)Update**。版本由
 `git+https://github.com/eric2q/prisma-sase-plugin@v0.9.4`。適合不希望版本在
 客戶 demo 期間變動的情況。
 
-### 離線使用
+### 範例資料模式(`PRISMA_MOCK`)
+
+設 `PRISMA_MOCK=1`,所有工具就改用**內建範例資料**回答,不呼叫 API ——
+不需要憑證、不需要租戶、不需要網路。範例回應的形狀與真實回應一致(相同欄位、
+相同單位、連 aggregate 與 per-alert 的差異都保留),所以它走的是跟實際呼叫
+完全相同的程式路徑。
+
+三種真正用得上的場合:
+
+- **還沒拿到 API Key 時。** 申請唯讀 service account 可能要等幾天。先用這個
+  看看工具會回什麼,再決定值不值得跑這個流程。
+- **做示範時。** 要給同事或客戶看工具能做什麼,又不想把真實租戶的告警和 IP
+  投在螢幕上。
+- **判斷問題出在哪一端。** 某個工具行為怪怪的,就加上 `PRISMA_MOCK=1` 再跑
+  一次:還是怪 → 是 plugin 的問題;正常 → 是租戶、憑證或網路的問題。
+
+```bash
+PRISMA_MOCK=1 uvx --from git+https://github.com/eric2q/prisma-sase-plugin \
+  prisma-sase-mcp --selfcheck
+```
+
+要在對話中使用,就在 Local MCP 設定的 env 區塊加上 `PRISMA_MOCK` = `1`,然後
+重啟應用程式。`--selfcheck` 會顯示 `mock mode: ON`,`get_sase_status` 也會
+標明 —— **範例資料一定會被標示出來**,不會被誤認為真實答案。
+
+⚠️ 它是示範用途,**不是租戶**。絕對不要把範例數字當成你環境的實際狀況引用;
+要看真實答案時,把這個變數移除即可。
+
+> 不是你要的?如果你的目的是在**沒有網路**的地方跑**真實**工具,那是下一節 ——
+> 兩者雖然中文都常被講成「離線」,但完全是不同的事。
+
+### 在沒有網路的環境啟動
 
 由於 server 每次啟動都會重新解析 git ref,沒有釘版本的設定**每次啟動**都需要
 網路,而不只是第一次安裝。熱快取無法避免這一點。

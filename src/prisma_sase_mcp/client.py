@@ -353,6 +353,22 @@ def slim_records(records, whitelist, limit):
     return rows, total
 
 
+def mock_notice():
+    """Sample-data warning for a tool's output, or None in live mode.
+
+    Every tool stamps this. Labelling only --selfcheck was not enough: the
+    conversation never sees selfcheck, it sees the tool's dict, and an
+    unlabelled "1 critical alert" is indistinguishable from a real one. A
+    demo figure repeated as fact is the one failure this mode must not
+    enable, so the label travels with the data.
+    """
+    if not config.MOCK_MODE:
+        return None
+    return ("SAMPLE DATA -- PRISMA_MOCK is set, so no tenant was queried. "
+            "These figures are built-in examples; never report them as this "
+            "tenant's state. Unset PRISMA_MOCK and restart for real answers.")
+
+
 def verify_note(raw):
     """If the queried Insights resource/view is an unverified default, say so."""
     meta = (raw or {}).get("_meta") or {} if isinstance(raw, dict) else {}

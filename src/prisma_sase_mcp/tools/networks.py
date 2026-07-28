@@ -25,7 +25,8 @@ Up/down is read from tunnel_state_name (fallbacks: tunnel_state, tunnel_status);
 tunnel_monitoring_state_name rides along as a secondary health signal.
 """
 import config
-from client import (SaseClient, SaseApiError, default_time_rules, records_of,
+from client import (SaseClient, SaseApiError, default_time_rules, mock_notice,
+                    records_of,
                     slim_records, verify_note)
 
 _WHITELIST = ["site_name", "tunnel_name", "node_type", "transport_type",
@@ -168,4 +169,8 @@ def get_remote_networks(state=None, hours=1, limit=config.DEFAULT_LIMIT,
     note = verify_note(raw)
     if note:
         out["_verify"] = note
+    mock = mock_notice()
+    if mock:
+        out["mock_mode"] = True
+        out["mock_notice"] = mock
     return out

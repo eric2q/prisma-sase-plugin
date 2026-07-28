@@ -14,7 +14,7 @@ The per-app parameter remains a best-guess pending confirmation.
 import time
 
 import config
-from client import SaseClient, SaseApiError
+from client import SaseClient, SaseApiError, mock_notice
 
 # ADEM score rating bands (see skills/prisma-sase-ops/references/thresholds.md).
 # <70 is the documented "degraded" action line (design doc sec.2).
@@ -67,6 +67,12 @@ def get_user_experience(user=None, app=None, hours=24, start=None, end=None,
         out["worst_component"] = score["worst_component"]
     if score["row_count"] is not None:
         out["row_count"] = score["row_count"]
+    # Stamped here, before the three no-data return paths below, so every exit
+    # carries it -- a per-return stamp is one edit away from missing an exit.
+    _mock = mock_notice()
+    if _mock:
+        out["mock_mode"] = True
+        out["mock_notice"] = _mock
 
     if score["overall"] is None:
         # Field report 2026-07-23: live tenant returned score=null. Surface the

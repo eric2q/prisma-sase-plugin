@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.9.8 — 2026-07-28
+
+Sample-data mode was going to be removed for being unclear. It stays — the
+docs were the problem — and writing them properly exposed a real hole.
+
+- **FIX (safety, high):** **sample data was only labelled in `--selfcheck`.**
+  The conversation never sees selfcheck; it sees the tool's response — and
+  `ATTENTION: 1 critical alert(s); 1 tunnel(s) down` from canned data reads
+  exactly like a tenant in trouble. Nothing marked it. All six tools now
+  return `mock_mode: true` plus a plain-language `mock_notice`, and
+  `get_sase_status` prefixes its headline `[SAMPLE DATA]` for readers who take
+  only that line. `discover_insights` additionally warns not to adopt the
+  sample resource names into `PRISMA_INSIGHTS_MAP` — its output *is* names, so
+  copying them would configure a real install from canned data.
+- **CHG (docs):** `PRISMA_MOCK` now has a section of its own explaining **when
+  it is actually worth using**: before an API key is approved, for demos
+  without a real tenant on screen, and — the use that was never written down —
+  to split a fault in two. Re-run a misbehaving tool under `PRISMA_MOCK=1`:
+  still wrong → the plugin; fine → the tenant, credentials, or network.
+- **CHG (docs):** *"Working offline"* is renamed **"Launching without a
+  network"**, because it had nothing to do with `PRISMA_MOCK` and the shared
+  word made them look like one feature. Each section now points at the other
+  and says they are unrelated. Cross-references in both READMEs and
+  `plugin/README.md` updated.
+- **NEW:** the Skill gets the same explanation, including the
+  fault-splitting use, plus a rule never to mix sample and live figures in
+  one answer.
+- **NEW:** 5 tests pinning the labelling — every tool flags it, every tool
+  carries the human-readable notice, the headline is marked, discovery warns
+  about its names, and **live mode stays clean**. Removing the label turns 3
+  of them red.
+
 ## 0.9.7 — 2026-07-28
 
 Docs only. 0.9.6 taught the Skill to guide its own installation; the READMEs

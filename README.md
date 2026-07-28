@@ -124,7 +124,7 @@ its own interpreter when the system one is too old (macOS ships 3.9;
 |---|---|---|
 | **uv** (provides `uvx`) | The launcher for everything below, on every OS. Also supplies the Python interpreter | `uvx: command not found` in your terminal — or, if the app was already configured, an MCP server that silently never starts |
 | **git** | Every command here installs `--from git+https://…`, and uv shells out to git to resolve the ref and fetch the source | uv stops at *"Git executable not found"*. Required at **install** time only; once the version is cached, launches no longer call git |
-| **Network to GitHub + PyPI** | uvx fetches this repo and its dependencies on first launch, and re-checks the ref on **every** launch. Behind a corporate proxy, set `HTTPS_PROXY=http://proxy:port` | *"Failed to resolve"* / *"Git operation failed"* after an `Updating … (HEAD)` line. A warm cache does not avoid this — see [Working offline](#working-offline) |
+| **Network to GitHub + PyPI** | uvx fetches this repo and its dependencies on first launch, and re-checks the ref on **every** launch. Behind a corporate proxy, set `HTTPS_PROXY=http://proxy:port` | *"Failed to resolve"* / *"Git operation failed"* after an `Updating … (HEAD)` line. A warm cache does not avoid this — see [Launching without a network](#launching-without-a-network) |
 | **A read-only SCM service account** | The Client ID / Secret / TSG the tools authenticate with | That is [step 2](#2-get-the-api-key), not needed for step 1 |
 
 Full uv install options: [docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/).
@@ -133,12 +133,14 @@ Homebrew.
 
 </details>
 
-**No Prisma tenant yet?** Set `PRISMA_MOCK=1` and the tools answer with
-realistic sample data — no credentials, no network.
+**No Prisma tenant yet?** See [Sample-data mode](#sample-data-mode-prisma_mock)
+— the tools answer from built-in sample data, with no credentials and no
+tenant. Useful for trying the tools before you have an API key, and for
+demoing to someone without exposing a real tenant.
 
-**Running without a network** takes one extra step, because the server
-re-resolves the git ref on every launch. See
-[Working offline](#working-offline), under Update.
+**Running without a network** is a *different* thing and takes one extra step,
+because the server re-resolves the git ref on every launch. See
+[Launching without a network](#launching-without-a-network), under Update.
 
 ## 2. Get the API key
 
@@ -383,7 +385,44 @@ is recorded per release in [`plugin/CHANGELOG.md`](plugin/CHANGELOG.md)
 the auto-update stops there: `git+https://github.com/eric2q/prisma-sase-plugin@v0.9.4`.
 Useful for a customer demo you do not want moving under you.
 
-### Working offline
+### Sample-data mode (`PRISMA_MOCK`)
+
+Set `PRISMA_MOCK=1` and every tool answers from **built-in sample data**
+instead of calling the API. No credentials, no tenant, no network. The sample
+responses are shaped like real ones — same fields, same units, same aggregate
+vs per-alert quirks — so they run through the exact code path a live call
+does.
+
+Three situations where this earns its keep:
+
+- **Before you have an API key.** Getting a read-only service account approved
+  can take days. This shows what the tools return in the meantime, so you can
+  decide whether it's worth the paperwork.
+- **Demos.** Showing a colleague or a customer what the tools do without
+  putting a real tenant's alerts and IP addresses on screen.
+- **Checking whether a problem is yours or the tenant's.** If a tool
+  misbehaves, re-run it under `PRISMA_MOCK=1`. Still wrong → the plugin.
+  Fine → the tenant, the credentials, or the network.
+
+```bash
+PRISMA_MOCK=1 uvx --from git+https://github.com/eric2q/prisma-sase-plugin \
+  prisma-sase-mcp --selfcheck
+```
+
+To use it in conversation, add `PRISMA_MOCK` = `1` to the env block of your
+Local MCP entry and restart the app. `--selfcheck` prints `mock mode: ON` and
+`get_sase_status` says so too — **sample data is always labelled**, so it can't
+be mistaken for a real answer.
+
+⚠️ It is a demo aid, **not** a tenant. Never quote a sample number as though it
+came from your environment, and remove the variable when you want real
+answers.
+
+> Not what you need? If the goal is running the **real** tools where there is
+> no internet, that is the next section — these two are unrelated despite both
+> being called "offline".
+
+### Launching without a network
 
 Because the server re-resolves the git ref on every launch, an unpinned entry
 needs network access **each time it starts**, not only on first install. A warm
