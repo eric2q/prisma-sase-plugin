@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.9.6 — 2026-07-28
+
+Skill only; the server is unchanged. Four gaps the 0.9.0 split left behind,
+found by installing the plugin from scratch and reading what the Skill would
+actually have done.
+
+- **FIX (high):** the Skill **would not load when asked to install anything.**
+  A Skill's `description` is the only thing deciding whether it loads, and
+  this one advertised query intents exclusively ("現在 SASE 狀態如何", "any
+  critical alerts"). Since 0.9.0 the Skill and the server install separately,
+  so the most common first question from a new user — *"怎麼安裝"*, *"the SASE
+  tools are missing"* — matched nothing, and the bootstrap runbook the Skill
+  already carried could never fire. Setup, repair and broken-state intents are
+  now advertised in both languages, and the Skill opens by telling Claude to
+  check its tool list first and treat "Skill present, no tools" as the normal
+  pre-install state rather than a fault.
+- **FIX:** **version skew had no guidance.** The server re-resolves from `main`
+  every launch; the Skill is pinned to a cached version and moves only on
+  update — they drift *by design*, and `plugin_version` sits in every
+  `get_sase_status` response, but nothing told Claude to compare them. It now
+  answers "which version" with both, trusts tool output over Skill prose when
+  the server is ahead, and does not insist a tool is broken when the Skill is
+  ahead.
+- **FIX:** `plugin_update_pending` was presented as a general safeguard. It
+  **cannot fire on a uvx install** — detection keys off a version-named
+  install directory and uvx lands in `site-packages` (verified: the check
+  returns `None` there). Its absence proved nothing, and the Skill implied
+  otherwise. Now scoped explicitly to venv-based installs.
+- **FIX:** the Skill pointed at `plugin/CHANGELOG.md`, a repo path Claude
+  cannot read. It ships at the **root** of the installed plugin.
+- **NEW:** a decision-tree exit for the two cases that had none — no tools
+  loaded (go install the server) and the tenant genuinely cannot answer (say
+  so; never substitute a neighbouring metric, never dress an API limitation as
+  user error). Read-only refusals get concrete wording too: name the place in
+  SCM where the change is actually made, and offer to verify afterwards.
+- **NEW:** 4 tests pinning the description's trigger keywords — including that
+  widening it did not cost the original query triggers. Skill prose was
+  otherwise entirely untested; reverting the description turns 3 of them red.
+
 ## 0.9.5 — 2026-07-28
 
 Docs only; no behaviour change.

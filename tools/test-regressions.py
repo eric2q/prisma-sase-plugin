@@ -468,6 +468,57 @@ class PluginShipsTheSkillOnly(unittest.TestCase):
                         "the plugin has nothing left to ship without %s" % skill)
 
 
+class SkillDescriptionTriggers(unittest.TestCase):
+    """0.9.6 -- the description is the ONLY thing deciding whether the Skill
+    loads, and the plugin's whole value before the server exists is that it
+    can walk the user through installing one.
+
+    Through 0.9.5 the description listed query triggers only ("现在 SASE 状态
+    如何", "any critical alerts"). A user who had just installed the plugin and
+    asked "how do I set this up" therefore did not load the Skill -- so the
+    bootstrap runbook it already contained could never fire. Skill prose is
+    otherwise untested, so these keywords are pinned here.
+    """
+
+    def _description(self):
+        path = os.path.join(ROOT, "plugin", "skills", "prisma-sase-ops",
+                            "SKILL.md")
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertTrue(text.startswith("---"),
+                        "SKILL.md must open with YAML frontmatter")
+        return text.split("---")[1]
+
+    def test_setup_intents_are_advertised(self):
+        desc = self._description().lower()
+        for kw in ("install", "configur", "set up"):
+            self.assertIn(kw, desc,
+                          "%r missing: a user asking to %s would not load the "
+                          "Skill, and the bootstrap runbook could not fire"
+                          % (kw, kw))
+
+    def test_chinese_setup_intents_are_advertised(self):
+        """The audience asks in Chinese as often as English."""
+        desc = self._description()
+        for kw in ("安裝", "設定"):
+            self.assertIn(kw, desc, "%r missing from the description" % kw)
+
+    def test_broken_state_intents_are_advertised(self):
+        """The Skill must load when the tools are NOT there -- that is the
+        exact moment its setup guidance is needed."""
+        desc = self._description().lower()
+        self.assertTrue(
+            "missing" in desc or "not loaded" in desc or "跑不出來" in desc,
+            "nothing in the description covers 'the tools are missing', so "
+            "the Skill stays dormant precisely when it is most useful")
+
+    def test_query_intents_are_still_advertised(self):
+        """Widening the description must not cost the original triggers."""
+        desc = self._description().lower()
+        for kw in ("alert", "tunnel", "adem", "health"):
+            self.assertIn(kw, desc, "lost the %r query trigger" % kw)
+
+
 class UvxPackaging(unittest.TestCase):
     """The Local MCP path is `uvx --from git+... prisma-sase-mcp`.
 

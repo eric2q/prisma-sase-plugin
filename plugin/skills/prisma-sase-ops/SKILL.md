@@ -1,15 +1,21 @@
 ---
 name: prisma-sase-ops
 description: >-
-  Operate and monitor a Prisma SASE (Prisma Access) tenant through the
-  read-only prisma-sase MCP tools. Use whenever the user asks about SASE / Prisma
-  Access health, alerts, tunnel or Remote Network / Service Connection status,
-  connected Mobile Users, or ADEM user-experience scores -- e.g. "現在 SASE 狀態如何",
-  "有沒有 P1 告警", "幫我查 XX 使用者體驗為什麼掉", "列出 tunnel 狀態", "how is Prisma
-  Access doing", "any critical alerts", "why is this user slow" -- or when
-  producing a tenant health report. Provides the tool-selection decision tree,
-  metric-interpretation thresholds, diagnostic runbooks, and the weekly-report
-  template.
+  Operate, monitor, install and troubleshoot a Prisma SASE (Prisma Access)
+  setup through the read-only prisma-sase MCP tools. Use whenever the user asks
+  about SASE / Prisma Access health, alerts, tunnel or Remote Network / Service
+  Connection status, connected Mobile Users, or ADEM user-experience scores --
+  e.g. "現在 SASE 狀態如何", "有沒有 P1 告警", "幫我查 XX 使用者體驗為什麼掉",
+  "列出 tunnel 狀態", "how is Prisma Access doing", "any critical alerts", "why is
+  this user slow" -- or when producing a tenant health report. ALSO use it for
+  installing, configuring or repairing the plugin itself, even when none of the
+  query tools are loaded yet: "怎麼安裝 prisma sase", "SASE 工具跑不出來",
+  "設定 SASE 憑證", "how do I install this", "set up prisma sase", "the SASE tools
+  are missing", "prisma sase says missing credentials". The Skill and the MCP
+  server install separately, so the Skill is often present BEFORE any tool is --
+  it carries the setup walkthrough for exactly that state. Provides the
+  tool-selection decision tree, metric-interpretation thresholds, diagnostic
+  runbooks, credential handling rules, and the weekly-report template.
 ---
 
 # Prisma SASE Ops
@@ -18,8 +24,21 @@ This Skill is the **knowledge layer** for the `prisma-sase` MCP server. The MCP
 tools know *how* to call the APIs safely; this Skill tells you *which* tool to
 call, *how to read the numbers*, and *how to present* the answer.
 
+**Check your tool list before anything else.** The Skill and the server install
+separately, so this Skill is frequently loaded with **no prisma-sase tools
+present at all** — a user who has installed the plugin and nothing else is in
+that state, and it is normal, not broken. If `get_sase_status` and friends are
+absent, do not improvise tenant answers and do not treat it as a failure: go
+straight to the *Bootstrap runbook* below and walk them through installing the
+server. Guiding that install is a first-class job of this Skill, not a detour
+from it.
+
 All tools are **read-only**. There is no way to change tenant configuration from
-here, and you must never imply that there is.
+here, and you must never imply that there is. When asked to *do* something —
+restart a tunnel, change a policy, clear an alert — say plainly that these tools
+only read, name the specific place in Strata Cloud Manager where the change is
+made, and offer to verify the result afterwards with a read query. Do not hedge
+or leave the impression it might be possible with different phrasing.
 
 ## Tools at a glance
 
@@ -64,6 +83,17 @@ Every tool takes optional `tsg_id` and `region` to target a specific tenant
    lists kinds under `matches_shipped_defaults`, tell the user those need no
    env change** — the discovered names are already this version's built-in
    verified defaults; only `suggested_insights_map` entries are worth persisting.
+
+7. **None of the tools are loaded** → the server is not installed yet. This is
+   the expected state right after installing the plugin. Go to the *Bootstrap
+   runbook*; do not answer tenant questions from memory in the meantime.
+8. **The tools ran but this tenant cannot answer** — the view does not exist,
+   the window is empty, the field is not exposed. Say what was asked, what came
+   back, and why, then stop. Do **not** substitute a neighbouring metric and
+   present it as the answer, and do not describe an API limitation as something
+   the user misconfigured. `PRISMA_MOCK=1` can still show what the answer
+   *would* look like, which is often what a demo actually needs — offer it as a
+   demo aid, never as tenant data.
 
 When a request spans several of these, start with `get_sase_status`, then fire
 the specific tools **in parallel** for the parts that need detail.
@@ -111,16 +141,39 @@ per-section `error`/`hint` says). The `checks` object gives the counts.
   certainly misread the unit — stop and re-check before reporting.
 - Keep it tight: summarize, don't dump raw JSON at the user. Surface the numbers
   that matter and the one or two things worth acting on.
-- **"Which plugin version am I running?"** → `get_sase_status` returns
-  `plugin_version`; the CLI equivalents (`--selfcheck`, the startup log) show
-  it too. Compare against the repo's `plugin/CHANGELOG.md` to tell the user
-  what their version does or lacks.
+- **"Which plugin version am I running?"** → there are **two** versions and
+  they are allowed to differ; answer with both. `get_sase_status` returns
+  `plugin_version`, which is the **server**; this Skill's own version is in
+  the plugin manifest, and `CHANGELOG.md` ships at the **root of the installed
+  plugin directory** (not under `plugin/` — that is the repo layout, which you
+  cannot read). The CLI equivalents (`--selfcheck`, the startup log) also show
+  the server version.
+- **When the two versions differ** — expected, not a fault. The server is
+  re-resolved from `main` on every launch, so it moves the moment a fix is
+  pushed; the Skill is pinned to a cached version and only moves when the user
+  runs an update. So:
+  - **Server newer than this Skill** (the common case) — trust the tool
+    output over this Skill's prose. If a response carries a field this Skill
+    does not describe, report it on its own terms rather than forcing it into
+    a shape described here, and say the Skill text is behind. Suggest
+    `/plugin marketplace update prisma-sase` when the gap actually matters to
+    the answer; don't nag otherwise.
+  - **Skill newer than the server** — a behaviour described here may simply
+    not exist yet in their server. Say so instead of insisting the tool is
+    misbehaving; a full restart picks the new server up (uvx re-resolves at
+    launch).
 - **`plugin_update_pending` in a response** → the host kept an old server
   process alive across an update, so **this answer came from the OLD code**
   and the update's fixes are not active. Say so up front and give the restart
   instruction from the `action` field (Desktop ⌘Q / CLI restart `claude`) —
   don't let the user assume the update took effect, and don't debug behaviour
   that the newer version may already have fixed.
+  ⚠️ **Only venv-based installs can raise this.** The detection keys off a
+  version-named install directory, which the uvx layout (`site-packages`)
+  never has — so on a uvx install the field is *always absent* and its absence
+  proves nothing. Never reason "no `plugin_update_pending`, therefore the
+  server is current". To actually check a uvx server, compare its
+  `plugin_version` against the repo's latest release.
 - **`credentials_not_supplied` in a response** → see the dedicated section
   below. It means the credentials that reached the server were blank or
   unsubstituted — a configuration problem, never a tenant outage.
