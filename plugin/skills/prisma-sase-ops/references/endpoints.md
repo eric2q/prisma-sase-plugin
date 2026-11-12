@@ -18,6 +18,9 @@ inside the server — you never build a token or a header yourself.)
 | `get_connected_users` | Insights 3.0 | `POST /insights/v3.0/resource/query/<resource>/<view>` | Mobile Users |
 | `get_remote_networks` *(status only in P1)* | Insights 3.0 | `POST .../query/<resource>/<view>` | Tunnel up/down |
 | `get_user_experience` | ADEM Telemetry v2 | `GET /adem/telemetry/v2/measure/agent/score` | `start`/`end` epoch, `endpoint-type`, `response-type` |
+| `query_incidents` *(0.9.9, unverified)* | SCM Unified Incidents | `POST /incidents/v1/search` | Per-incident rows with severity. Host and body shape are probed, not documented |
+| `get_incident` *(0.9.9, unverified)* | SCM Unified Incidents | `GET /incidents/v1/details/{incident-id}` | One incident in full |
+| `discover_scm` *(0.9.9)* | SCM Unified Incidents | the search POST, `page_size` 1 | Reports host, accepted body shape and field **names** only |
 
 ## Insights 3.0 filter syntax (confirmed shape)
 

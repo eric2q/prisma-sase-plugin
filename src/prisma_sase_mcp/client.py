@@ -10,9 +10,11 @@ Common responsibilities (design doc sec.4):
 * ``PRISMA_MOCK`` short-circuits to local sample data (no network at all).
 
 READ-ONLY GUARANTEE (handoff note sec.10.1): this client only ever issues
-Insights *query* POSTs and ADEM GETs. There is no write/commit/push code path
-anywhere -- ``insights_query`` can only build the read-only query URL, and
-``adem_get`` only performs GETs.
+Insights *query* POSTs, ADEM GETs and -- since 0.9.9 -- the two documented
+read-only SCM Incidents calls (the search POST and the details GET). There is
+no write/commit/push code path anywhere -- ``insights_query`` can only build
+the read-only query URL, ``adem_get`` only performs GETs, and the incidents
+methods can only reach the two fixed paths in ``config``.
 """
 import logging
 import time
@@ -206,6 +208,34 @@ class SaseClient:
         if params:
             path = path + "?" + urllib.parse.urlencode(params)
         return self._request("GET", path, tsg, region, json_body=None)
+
+    # -- SCM Unified Incidents (read-only: search POST + details GET) -----
+    def incidents_search(self, body, tsg_id=None, region=None, base=None):
+        """POST the documented incident SEARCH (a query; it changes nothing).
+
+        ``base`` picks one of config.SCM_BASES -- the host is not documented,
+        so the tool layer tries them in order. The path is fixed.
+        """
+        tsg = config.resolve_tsg(tsg_id)
+        region = config.resolve_region(region)
+        if config.MOCK_MODE:
+            return mock_data.incidents_search(body)
+        _require_ctx(tsg, region)
+        return self._request("POST", config.SCM_INCIDENTS_SEARCH_PATH, tsg,
+                             region, json_body=body or {},
+                             base=base or config.SCM_BASES[0])
+
+    def incident_details(self, incident_id, tsg_id=None, region=None,
+                         base=None):
+        """GET one incident's details. The id is encoded as a single segment."""
+        tsg = config.resolve_tsg(tsg_id)
+        region = config.resolve_region(region)
+        if config.MOCK_MODE:
+            return mock_data.incident_details(incident_id)
+        _require_ctx(tsg, region)
+        return self._request("GET", config.incident_details_path(incident_id),
+                             tsg, region, json_body=None,
+                             base=base or config.SCM_BASES[0])
 
     # -- core request with retry ------------------------------------------
     def _request(self, method, path, tsg, region, json_body=None, _attempt=0,

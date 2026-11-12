@@ -37,7 +37,7 @@ import sys
 # in-conversation. MUST be bumped in lockstep with .claude-plugin/
 # marketplace.json (all three entries); tools/build-standalone.py fails the
 # build on a mismatch, and PUBLISHING.md documents the step.
-PLUGIN_VERSION = "0.9.8"
+PLUGIN_VERSION = "0.9.9"
 
 # --- Fixed, verified facts (design doc sec.3 -- do NOT change) ---------------
 AUTH_URL = "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
@@ -339,6 +339,58 @@ FILTER_PROP_STATE = _env("PRISMA_FILTER_STATE_PROP", "state")
 # --- ADEM defaults (design doc sec.3; confirmed shape from pan.dev) -----------
 ADEM_DEFAULT_ENDPOINT_TYPE = _env("PRISMA_ADEM_ENDPOINT_TYPE", "muAgent")
 ADEM_DEFAULT_RESPONSE_TYPE = _env("PRISMA_ADEM_RESPONSE_TYPE", "summary")
+
+# --- SCM Unified Incident Framework (0.9.9; read-only, UNVERIFIED live) -------
+# pan.dev documents exactly two paths (spec 3.0.0, 2026-03-30) and describes
+# the API as read-only. It does NOT state the host, the request body or the
+# response fields -- so the host is a candidate list tried in order, and
+# tools/discover_scm.py exists to find out what a real tenant accepts.
+SCM_INCIDENTS_SEARCH_PATH = "/incidents/v1/search"
+SCM_INCIDENTS_DETAILS_PREFIX = "/incidents/v1/details/"
+SCM_BASES = ["https://api.strata.paloaltonetworks.com", API_BASE]
+INCIDENTS_BASE_REJECTED = None   # an override that failed the trust check
+
+
+def _trusted_scm_base(url):
+    """Accept a base-URL override only if it is HTTPS on a PANW host.
+
+    The bearer token is sent to whatever host this names. An override must not
+    be able to carry it off Palo Alto Networks infrastructure -- one typo'd or
+    hostile env line would otherwise hand a live credential to a stranger.
+    """
+    try:
+        from urllib.parse import urlsplit
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+        return (parts.scheme == "https" and not parts.username
+                and (host == "paloaltonetworks.com"
+                     or host.endswith(".paloaltonetworks.com")))
+    except ValueError:
+        return False
+
+
+_inc_base = _env("PRISMA_INCIDENTS_BASE").strip().rstrip("/")
+if _inc_base:
+    if _trusted_scm_base(_inc_base):
+        SCM_BASES = [_inc_base] + [b for b in SCM_BASES if b != _inc_base]
+    else:
+        INCIDENTS_BASE_REJECTED = _inc_base
+
+INCIDENTS_VERIFIED = (_env("PRISMA_INCIDENTS_VERIFIED").strip().lower()
+                      in ("1", "true", "yes", "on"))
+INCIDENT_PROP_SEVERITY = _env("PRISMA_INCIDENT_SEVERITY_PROP", "severity")
+INCIDENT_PROP_STATUS = _env("PRISMA_INCIDENT_STATUS_PROP", "status")
+
+
+def incident_details_path(incident_id):
+    """Details path with the id percent-encoded as ONE segment.
+
+    The id comes from a tool argument. Encoding every reserved character
+    (safe="") means it can never add a path segment or a query string, so this
+    client cannot be steered to any URL other than the documented one.
+    """
+    from urllib.parse import quote
+    return SCM_INCIDENTS_DETAILS_PREFIX + quote(str(incident_id), safe="")
 
 
 def resolve_tsg(tsg_id=None):

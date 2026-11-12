@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.9.9 — 2026-11-12
+
+Per-incident severity, from the API PANW points to for it. Three new
+read-only tools; nothing existing changes behaviour.
+
+- **NEW:** `query_incidents` — searches the Strata Cloud Manager **Unified
+  Incident Framework** and returns one row per incident **with severity**,
+  status, product and timestamps. This is the gap `query_alerts` has reported
+  since 0.4.0: on the live tenant `alerts/alerts_list` is an aggregate view and
+  every `alerts_detail` candidate came back `DATA10003`.
+- **NEW:** `get_incident` — one incident in full (alerts, impacted objects,
+  remediation), long lists truncated with a marker.
+- **NEW:** `discover_scm` (and `--discover-scm` on the command line) — probes
+  which host and request-body shape your tenant accepts and lists the real
+  response field names. It returns **names and counts only, never incident
+  values**, so its output is safe to paste into an issue.
+- **Read this before relying on it:** the two paths (`POST
+  /incidents/v1/search`, `GET /incidents/v1/details/{id}`) are documented on
+  pan.dev. The host, the request body and the response fields are **not**, and
+  this release has **not yet been run against a live tenant**. So the tools try
+  `api.strata` then `api.sase`, fall back from a filtered body to an unfiltered
+  one (filtering locally, and saying so), and stamp every response with a
+  `_verify` note until you set `PRISMA_INCIDENTS_VERIFIED=1`. Please run
+  `discover_scm` and report what it prints.
+- **Still read-only.** Both calls are queries. The client can reach only those
+  two fixed paths; the incident id is encoded as a single path segment; and a
+  `PRISMA_INCIDENTS_BASE` override is ignored unless it is HTTPS on a
+  `paloaltonetworks.com` host, so no setting can carry the token elsewhere.
+- **NEW:** 11 tests — severity per incident, the unverified label, host and
+  body fallbacks, a total failure surfacing as an error rather than an empty
+  list, and the three containment rules above.
+- **Skill:** a short section on when to reach for the new tools. As always the
+  Skill half arrives only after a plugin update.
+
 ## 0.9.8 — 2026-07-28
 
 Sample-data mode was going to be removed for being unclear. It stays — the
