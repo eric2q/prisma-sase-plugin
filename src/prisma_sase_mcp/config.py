@@ -37,7 +37,7 @@ import sys
 # in-conversation. MUST be bumped in lockstep with .claude-plugin/
 # marketplace.json (all three entries); tools/build-standalone.py fails the
 # build on a mismatch, and PUBLISHING.md documents the step.
-PLUGIN_VERSION = "0.9.9"
+PLUGIN_VERSION = "0.10.0"
 
 # --- Fixed, verified facts (design doc sec.3 -- do NOT change) ---------------
 AUTH_URL = "https://auth.apps.paloaltonetworks.com/oauth2/access_token"
@@ -395,11 +395,22 @@ def incident_details_path(incident_id):
 
 def resolve_tsg(tsg_id=None):
     """Explicit tsg_id wins, else the default tenant (design doc sec.4.4)."""
-    return (tsg_id or DEFAULT_TSG_ID or "").strip()
+    return (tsg_id or DEFAULT_TSG_ID or _file_default_ctx()[0] or "").strip()
 
 
 def resolve_region(region=None):
-    return (region or DEFAULT_REGION or "").strip()
+    return (region or DEFAULT_REGION or _file_default_ctx()[1] or "").strip()
+
+
+def _file_default_ctx():
+    """(tsg_id, region) of the default Prisma Access tenant, or ("", "").
+
+    Lets an install configured ONLY through the tenants file work on every
+    code path, including the direct-import escape hatch that never goes
+    through the server's tenant resolution.
+    """
+    tenant = TENANTS.get(TENANT_DEFAULTS.get(KIND_SASE) or "")
+    return (tenant["tsg_id"], tenant["region"]) if tenant else ("", "")
 
 
 def clamp_limit(limit):
@@ -421,6 +432,14 @@ def clamp_limit(limit):
 
 def missing_credentials():
     """Return the required env vars that are unset (used for actionable errors)."""
+    # A default Prisma Access tenant fully defined in the tenants file needs
+    # no PRISMA_* variables at all -- reporting them missing would send a
+    # correctly configured multi-tenant install off to re-run setup.
+    tenant = TENANTS.get(TENANT_DEFAULTS.get(KIND_SASE) or "")
+    if (tenant and tenant.get("source") == "tenants_file"
+            and tenant.get("client_id")
+            and (tenant.get("client_secret") or tenant.get("secret_cmd"))):
+        return []
     missing = []
     if not CLIENT_ID:
         missing.append("PRISMA_CLIENT_ID")
@@ -686,3 +705,323 @@ def env_diagnostics():
         "secret_source": SECRET_SOURCE,
         "secret_cmd_set": bool(SECRET_CMD),
     }
+
+
+# --- Tenants / environments (0.10.0) ------------------------------------------
+# A TENANT is a named environment this server can reach. Two kinds exist, and
+# they share nothing but having a name:
+#
+#   prisma_access  a Prisma Access (SASE) tenant -- a TSG, reached through the
+#                  cloud APIs with an OAuth service account
+#   ngfw           an on-prem firewall or Panorama, reached DIRECTLY over its
+#                  PAN-OS XML API with an API key
+#
+# Tools take a tenant NAME. Where that tenant lives and how to authenticate to
+# it are resolved here, from the operator's own machine -- never from a tool
+# argument, so nothing said in a conversation can send a credential to a host
+# the operator did not configure.
+#
+# Sources, lowest precedence first:
+#   1. the environment, unchanged from every earlier release: PRISMA_* makes a
+#      prisma_access tenant named "default"; PANOS_HOST makes an ngfw tenant
+#      named "ngfw".
+#   2. ~/.prisma-sase-tenants.json (or $PRISMA_TENANTS_FILE): any number of
+#      either kind. The README documents the format.
+class TenantError(ValueError):
+    """A tenant name that cannot be used as asked (unknown, or wrong kind)."""
+
+
+KIND_SASE = "prisma_access"
+KIND_NGFW = "ngfw"
+_KIND_ALIASES = {"prisma_access": KIND_SASE, "prisma-access": KIND_SASE,
+                 "sase": KIND_SASE, "prisma": KIND_SASE,
+                 "ngfw": KIND_NGFW, "panos": KIND_NGFW, "pan-os": KIND_NGFW,
+                 "firewall": KIND_NGFW, "panorama": KIND_NGFW}
+_KIND_LABEL = {KIND_SASE: "Prisma Access", KIND_NGFW: "NGFW (direct PAN-OS)"}
+_KIND_TOOLS = {KIND_SASE: "the SASE tools (get_sase_status, query_alerts, ...)",
+               KIND_NGFW: "the panos_* tools"}
+_TENANT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$")
+_HOST_RE = re.compile(
+    r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?(:[0-9]{1,5})?$")
+
+TENANTS = {}                 # name -> normalised tenant dict
+TENANT_DEFAULTS = {KIND_SASE: None, KIND_NGFW: None}
+TENANTS_FILE_USED = None
+TENANT_PROBLEMS = []         # human-readable, shown by selfcheck/list_tenants
+_SECRET_CACHE = {}
+
+
+def _flag(value, default):
+    """Parse an on/off setting. An unrecognised value keeps the DEFAULT, so a
+    typo can never silently switch TLS verification off or writes on."""
+    if isinstance(value, bool):
+        return value
+    text = str(value if value is not None else "").strip().lower()
+    if text in ("1", "true", "yes", "on"):
+        return True
+    if text in ("0", "false", "no", "off"):
+        return False
+    return default
+
+
+def clean_panos_host(value):
+    """'https://fw.example.com/' -> 'fw.example.com'. None unless the value is
+    a bare host[:port] -- no path, no credentials, and never plain http."""
+    host = str(value or "").strip()
+    if host.lower().startswith("https://"):
+        host = host[len("https://"):]
+    host = host.rstrip("/")
+    return host if _HOST_RE.match(host) else None
+
+
+def _normalise_tenant(name, raw):
+    if not _TENANT_NAME_RE.match(str(name)) or not isinstance(raw, dict):
+        TENANT_PROBLEMS.append(
+            "Tenant %r was ignored: names are letters, digits, '.', '_' and "
+            "'-', and each tenant is an object." % (name,))
+        return None
+    kind = _KIND_ALIASES.get(str(raw.get("kind") or "").strip().lower())
+    if kind is None and not raw.get("kind"):
+        kind = KIND_NGFW if raw.get("host") else (
+            KIND_SASE if raw.get("tsg_id") else None)
+    if kind is None:
+        TENANT_PROBLEMS.append(
+            "Tenant '%s' was ignored: kind must be \"prisma_access\" or "
+            "\"ngfw\"." % name)
+        return None
+    if kind == KIND_SASE:
+        tsg = str(raw.get("tsg_id") or "").strip()
+        region = str(raw.get("region") or "").strip()
+        if not tsg or not region:
+            TENANT_PROBLEMS.append(
+                "Tenant '%s' was ignored: a prisma_access tenant needs "
+                "tsg_id and region." % name)
+            return None
+        return {"name": name, "kind": kind, "tsg_id": tsg, "region": region,
+                "client_id": str(raw.get("client_id") or "").strip(),
+                "client_secret": str(raw.get("client_secret") or ""),
+                "secret_cmd": str(raw.get("secret_cmd") or "").strip(),
+                "source": "tenants_file"}
+    host = clean_panos_host(raw.get("host"))
+    if not host:
+        TENANT_PROBLEMS.append(
+            "Tenant '%s' was ignored: host must be a bare host[:port] "
+            "(https is implied; no path, no http)." % name)
+        return None
+    return {"name": name, "kind": kind, "host": host,
+            "api_key": str(raw.get("api_key") or ""),
+            "api_key_cmd": str(raw.get("api_key_cmd") or "").strip(),
+            "verify_tls": _flag(raw.get("verify_tls"), True),
+            "ca_bundle": os.path.expanduser(str(raw.get("ca_bundle") or "")),
+            "allow_write": _flag(raw.get("allow_write"), False),
+            "source": "tenants_file"}
+
+
+def _load_tenants():
+    global TENANTS_FILE_USED
+    # 1. the environment -- exactly what every earlier release understood.
+    if DEFAULT_TSG_ID or CLIENT_ID:
+        TENANTS["default"] = {
+            "name": "default", "kind": KIND_SASE, "tsg_id": DEFAULT_TSG_ID,
+            "region": DEFAULT_REGION, "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET, "secret_cmd": "",
+            "source": "environment"}
+    env_host = _env("PANOS_HOST")
+    if env_host:
+        host = clean_panos_host(env_host)
+        if host:
+            TENANTS["ngfw"] = {
+                "name": "ngfw", "kind": KIND_NGFW, "host": host,
+                "api_key": _env("PANOS_API_KEY"),
+                "api_key_cmd": _env("PANOS_API_KEY_CMD").strip(),
+                "verify_tls": _flag(_env("PANOS_VERIFY_TLS"), True),
+                "ca_bundle": os.path.expanduser(_env("PANOS_CA_BUNDLE")),
+                "allow_write": _flag(_env("PANOS_ENABLE_WRITE"), False),
+                "source": "environment"}
+        else:
+            TENANT_PROBLEMS.append(
+                "PANOS_HOST was ignored: it must be a bare host[:port] "
+                "(https is implied; no path, no http).")
+
+    # 2. the tenants file.
+    explicit = _env("PRISMA_TENANTS_FILE")
+    path = os.path.expanduser(explicit or "~/.prisma-sase-tenants.json")
+    if not os.path.isfile(path):
+        if explicit:
+            TENANT_PROBLEMS.append("PRISMA_TENANTS_FILE points at %s, which "
+                                   "does not exist." % path)
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        mode = os.stat(path).st_mode & 0o777
+    except (OSError, ValueError) as exc:
+        TENANT_PROBLEMS.append("Tenants file %s was ignored: it is not "
+                               "readable JSON (%s)."
+                               % (path, exc.__class__.__name__))
+        return
+    entries = data.get("tenants") if isinstance(data, dict) else None
+    if not isinstance(entries, dict):
+        TENANT_PROBLEMS.append("Tenants file %s was ignored: it needs a "
+                               "top-level \"tenants\" object." % path)
+        return
+    TENANTS_FILE_USED = path
+    if os.name != "nt" and mode & 0o077:
+        TENANT_PROBLEMS.append("%s is mode %o -- readable beyond you. Fix: "
+                               "chmod 600 %s" % (path, mode, path))
+    for name, raw in entries.items():
+        tenant = _normalise_tenant(name, raw)
+        if tenant:
+            TENANTS[name] = tenant
+
+    default = data.get("default")
+    if isinstance(default, str):
+        default = ({TENANTS[default]["kind"]: default}
+                   if default in TENANTS else {"?": default})
+    if isinstance(default, dict):
+        for key, name in default.items():
+            kind = _KIND_ALIASES.get(str(key).strip().lower())
+            if kind and name in TENANTS and TENANTS[name]["kind"] == kind:
+                TENANT_DEFAULTS[kind] = name
+            else:
+                TENANT_PROBLEMS.append(
+                    "default %r was ignored: it does not name a configured "
+                    "tenant of that kind." % (name,))
+
+
+_load_tenants()
+for _kind, _implicit in ((KIND_SASE, "default"), (KIND_NGFW, "ngfw")):
+    if TENANT_DEFAULTS[_kind]:
+        continue
+    _names = [n for n, t in TENANTS.items() if t["kind"] == _kind]
+    if _implicit in _names:
+        TENANT_DEFAULTS[_kind] = _implicit
+    elif len(_names) == 1:
+        TENANT_DEFAULTS[_kind] = _names[0]
+
+
+def tenant_names(kind):
+    return sorted(n for n, t in TENANTS.items() if t["kind"] == kind)
+
+
+def get_tenant(name=None, kind=KIND_SASE):
+    """The tenant called ``name`` -- or the default of that kind -- or a
+    TenantError that says what to do instead."""
+    names = tenant_names(kind)
+    if name in (None, ""):
+        default = TENANT_DEFAULTS.get(kind)
+        if default:
+            return TENANTS[default]
+        if names:
+            raise TenantError(
+                "Several %s tenants are configured (%s) and none is the "
+                "default -- pass tenant=<name>."
+                % (_KIND_LABEL[kind], ", ".join(names)))
+        raise TenantError(
+            "No %s tenant is configured on this machine. Add one to "
+            "~/.prisma-sase-tenants.json (the README has the format)."
+            % _KIND_LABEL[kind])
+    tenant = TENANTS.get(str(name).strip())
+    if tenant is None:
+        raise TenantError(
+            "Unknown tenant '%s'. Configured %s tenants: %s."
+            % (name, _KIND_LABEL[kind], ", ".join(names) or "none"))
+    if tenant["kind"] != kind:
+        raise TenantError(
+            "Tenant '%s' is a %s environment, not %s -- use %s for it."
+            % (name, _KIND_LABEL[tenant["kind"]], _KIND_LABEL[kind],
+               _KIND_TOOLS[tenant["kind"]]))
+    return tenant
+
+
+def resolve_sase_ctx(tenant=None, tsg_id=None, region=None):
+    """(tsg_id, region) for a SASE tool call.
+
+    ``tenant`` is a name; ``tsg_id``/``region`` are the pre-0.10 overrides and
+    still work. With neither, the default Prisma Access tenant is used.
+    """
+    if tenant not in (None, ""):
+        found = get_tenant(tenant, KIND_SASE)
+        if tsg_id and str(tsg_id).strip() != found["tsg_id"]:
+            raise TenantError(
+                "tenant='%s' and tsg_id='%s' name different tenants -- pass "
+                "one of them, not both." % (tenant, tsg_id))
+        return found["tsg_id"], (region or found["region"])
+    if tsg_id:
+        tsg = str(tsg_id).strip()
+        if not region:
+            for found in TENANTS.values():
+                if found["kind"] == KIND_SASE and found["tsg_id"] == tsg:
+                    return tsg, found["region"]
+        return tsg, region
+    default = TENANT_DEFAULTS.get(KIND_SASE)
+    if default:
+        found = TENANTS[default]
+        return (found["tsg_id"] or None), (region or found["region"] or None)
+    if tenant_names(KIND_SASE):
+        get_tenant(None, KIND_SASE)        # raises the "pass tenant=" error
+    return tsg_id, region
+
+
+def tenant_secret(tenant):
+    """The tenant's secret (client secret or API key); "" when unavailable.
+
+    Resolved lazily and cached for the process: a keychain command runs on
+    first use, not at import, so an unused tenant never prompts for anything.
+    stderr is discarded and never logged -- it could echo secret material.
+    """
+    plain, cmd = (("client_secret", "secret_cmd")
+                  if tenant["kind"] == KIND_SASE else ("api_key", "api_key_cmd"))
+    if tenant.get(plain):
+        return tenant[plain]
+    command = tenant.get(cmd)
+    if not command:
+        return ""
+    if tenant["name"] not in _SECRET_CACHE:
+        value = ""
+        try:
+            import subprocess
+            proc = subprocess.run(command, shell=True, capture_output=True,
+                                  text=True, timeout=15)
+            if proc.returncode == 0:
+                value = proc.stdout.strip()
+        except Exception:
+            value = ""
+        if not value:
+            return ""                      # a failure is not cached
+        _SECRET_CACHE[tenant["name"]] = value
+    return _SECRET_CACHE[tenant["name"]]
+
+
+def tenant_secret_source(tenant):
+    """Where the secret comes from -- a label, never the secret or command."""
+    if tenant["kind"] == KIND_SASE and tenant["source"] == "environment":
+        return SECRET_SOURCE or "missing"
+    plain, cmd = (("client_secret", "secret_cmd")
+                  if tenant["kind"] == KIND_SASE else ("api_key", "api_key_cmd"))
+    if tenant.get(plain):
+        return ("environment" if tenant["source"] == "environment"
+                else "plaintext_in_file")
+    if tenant.get(cmd):
+        return "command"
+    if (tenant["kind"] == KIND_SASE and not tenant.get("client_id")
+            and CLIENT_ID and CLIENT_SECRET):
+        return "shared_with_environment"
+    return "missing"
+
+
+def credentials_for(tsg):
+    """(client_id, client_secret) for a TSG: that tenant's own service account
+    when the tenants file gives it one, else the environment's."""
+    for tenant in TENANTS.values():
+        if (tenant["kind"] == KIND_SASE and tenant["tsg_id"] == tsg
+                and tenant["source"] == "tenants_file"
+                and tenant.get("client_id")):
+            return tenant["client_id"], tenant_secret(tenant)
+    return CLIENT_ID, CLIENT_SECRET
+
+
+def any_ngfw_write():
+    """True when at least one NGFW tenant's operator has enabled writes."""
+    return any(t["kind"] == KIND_NGFW and t["allow_write"]
+               for t in TENANTS.values())

@@ -79,7 +79,9 @@ class AuthManager:
 
     # -- internal ---------------------------------------------------------
     def _fetch(self, tsg):
-        if not config.CLIENT_ID or not config.CLIENT_SECRET:
+        # 0.10.0: each Prisma Access tenant may carry its own service account.
+        client_id, client_secret = config.credentials_for(tsg)
+        if not client_id or not client_secret:
             msg = ("Missing PRISMA_CLIENT_ID / PRISMA_CLIENT_SECRET. Easiest "
                    "fix: run the guided setup -- uvx --from "
                    "git+https://github.com/eric2q/prisma-sase-plugin "
@@ -99,7 +101,7 @@ class AuthManager:
                        + diag["message"])
             raise AuthError(msg)
         # Basic header built by hand so the secret never lands in a log/URL.
-        raw = "{0}:{1}".format(config.CLIENT_ID, config.CLIENT_SECRET).encode("utf-8")
+        raw = "{0}:{1}".format(client_id, client_secret).encode("utf-8")
         basic = base64.b64encode(raw).decode("ascii")
         headers = {
             "Authorization": "Basic " + basic,

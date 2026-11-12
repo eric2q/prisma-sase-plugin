@@ -10,8 +10,8 @@
 
 [project]
 name = "prisma-sase-mcp"
-version = "0.9.9"
-description = "Read-only MCP server for Prisma SASE (Prisma Access): alerts, tunnels, Mobile Users and ADEM."
+version = "0.10.0"
+description = "MCP server for Prisma SASE (Prisma Access) and on-prem PAN-OS firewalls: read-only by default, multi-tenant."
 readme = "README.md"
 requires-python = ">=3.10"       # fastmcp floor
 license = { text = "MIT" }

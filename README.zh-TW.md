@@ -433,3 +433,22 @@ README.zh-TW.md                   # 本頁(繁體中文版)
 
 連不到 marketplace 的機器仍可隨時建置獨立的 `.plugin` 檔:
 `python3 tools/build-standalone.py` → `dist/`。它只帶 Skill,而且不會自己更新。
+
+## 多環境：租戶（tenant）與地端防火牆
+
+0.10.0 起，同一個 server 可同時處理兩種環境、各自多個：
+
+| 種類 | 是什麼 | 連線方式 | 工具 |
+|---|---|---|---|
+| `prisma_access` | Prisma Access / SASE 租戶（一個 TSG） | 雲端 SASE API、OAuth service account | SASE 工具 |
+| `ngfw` | 地端防火牆或 Panorama | 直連 PAN-OS XML API、API key | `panos_*` |
+
+**只有一個 Prisma Access 租戶的話什麼都不用改** —— 既有設定就是名為 `default` 的租戶。
+
+多租戶或要接防火牆時，建立 `~/.prisma-sase-tenants.json`（`chmod 600`），格式與範例見英文版
+[README](README.md#more-than-one-environment-tenants-and-on-prem-firewalls)。重點：
+
+- 密鑰不寫進檔案：用 `secret_cmd` / `api_key_cmd` 從 keychain 取。
+- 防火牆預設唯讀；要允許改設定與 commit，對**該台**加 `"allow_write": true` 後重啟 app。
+- TLS 預設驗證；私有憑證用 `ca_bundle` 指向 CA。
+- 主機位址、TSG、憑證都只在本機設定，永遠不會是對話中的參數。

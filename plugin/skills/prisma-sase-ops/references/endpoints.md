@@ -21,6 +21,11 @@ inside the server — you never build a token or a header yourself.)
 | `query_incidents` *(0.9.9, unverified)* | SCM Unified Incidents | `POST /incidents/v1/search` | Per-incident rows with severity. Host and body shape are probed, not documented |
 | `get_incident` *(0.9.9, unverified)* | SCM Unified Incidents | `GET /incidents/v1/details/{incident-id}` | One incident in full |
 | `discover_scm` *(0.9.9)* | SCM Unified Incidents | the search POST, `page_size` 1 | Reports host, accepted body shape and field **names** only |
+| `list_tenants` *(0.10.0)* | — (local config) | none | Names, kinds, defaults, write flag. Never a secret |
+| `panos_system_info` *(0.10.0)* | PAN-OS XML API, direct | `POST https://<fw>/api/` `type=op` | `ngfw` tenants only |
+| `panos_op_command` *(0.10.0)* | PAN-OS XML API, direct | `type=op`, `cmd=<xml>` | `<show>` always; anything else needs a write-enabled tenant |
+| `panos_config_action` *(0.10.0)* | PAN-OS XML API, direct | `type=config`, `action=`, `xpath=` | `get`/`show` always (secrets redacted); set/edit/delete/... need a write-enabled tenant |
+| `panos_commit_config`, `panos_commit_all_shared_policy` *(0.10.0)* | PAN-OS XML API, direct | `type=commit` | Registered **only** when some `ngfw` tenant has `allow_write` |
 
 ## Insights 3.0 filter syntax (confirmed shape)
 
