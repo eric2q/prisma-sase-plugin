@@ -1851,9 +1851,11 @@ class MockDataIsLabelled(unittest.TestCase):
              "from tools.users import get_connected_users\n"
              "from tools.adem import get_user_experience\n"
              "from tools.discover import discover_insights\n"
+             "from tools.incidents import query_incidents\n"
+             "from tools.discover_scm import discover_scm\n"
              "TOOLS = (get_sase_status, query_alerts, get_remote_networks,\n"
              "         get_connected_users, get_user_experience,\n"
-             "         discover_insights)\n")
+             "         discover_insights, query_incidents, discover_scm)\n")
 
     def _run(self, body, mock):
         env = {k: v for k, v in os.environ.items()
@@ -1914,15 +1916,149 @@ class MockSmokeTest(unittest.TestCase):
                 "from tools.users import get_connected_users\n"
                 "from tools.adem import get_user_experience\n"
                 "from tools.discover import discover_insights\n"
+                "from tools.incidents import query_incidents\n"
+                "from tools.discover_scm import discover_scm\n"
                 "bad = [f.__name__ for f in (get_sase_status, query_alerts,\n"
                 "        get_remote_networks, get_connected_users,\n"
-                "        get_user_experience, discover_insights)\n"
+                "        get_user_experience, discover_insights,\n"
+                "        query_incidents, discover_scm)\n"
                 "       if not f().get('ok')]\n"
                 "print(','.join(bad) if bad else 'ALL_OK')" % MCP)
         out = subprocess.run([sys.executable, "-c", code],
                              env=dict(os.environ, PRISMA_MOCK="1"),
                              stdout=subprocess.PIPE, check=True)
         self.assertEqual(out.stdout.decode().strip(), "ALL_OK")
+
+
+class ScmIncidents(unittest.TestCase):
+    """0.9.9 -- SCM Unified Incidents: per-incident severity, still read-only.
+
+    The paths are documented; the host, body and field names are not. These
+    pin the behaviour that makes shipping an unverified integration safe: it
+    says it is unverified, it degrades instead of failing when a guess is
+    wrong, and nothing a caller supplies can move the bearer token off PANW
+    hosts or off the two documented paths.
+    """
+
+    def setUp(self):
+        import tools.incidents as inc
+        self.inc = inc
+        inc._working_base.clear()
+        self._orig_client = inc.SaseClient
+
+    def tearDown(self):
+        self.inc.SaseClient = self._orig_client
+        self.inc._working_base.clear()
+
+    def test_search_returns_per_incident_severity(self):
+        out = self.inc.query_incidents()
+        self.assertTrue(out["ok"])
+        self.assertTrue(out["incidents"])
+        self.assertTrue(all("severity" in r for r in out["incidents"]),
+                        "severity per incident is the whole point -- it is "
+                        "what the Insights aggregate view cannot give")
+        self.assertEqual(out["counts_by_severity"].get("critical"), 1)
+
+    def test_an_unverified_integration_says_so(self):
+        self.assertIn("UNVERIFIED", self.inc.query_incidents().get("_verify", ""))
+
+    def test_server_side_filter_is_used_when_accepted(self):
+        out = self.inc.query_incidents(severity="critical")
+        self.assertEqual([r["severity"] for r in out["incidents"]], ["Critical"])
+        self.assertNotIn("filter_note", out)
+
+    def test_a_rejected_filter_body_degrades_to_local_filtering(self):
+        import mock_data
+        from client import SaseApiError
+
+        class RejectsFilters:
+            def incidents_search(self, body, tsg_id=None, region=None,
+                                 base=None):
+                if (body.get("filter") or {}).get("rules"):
+                    raise SaseApiError("bad body", status=400)
+                return mock_data.incidents_search({})
+
+        self.inc.SaseClient = RejectsFilters
+        out = self.inc.query_incidents(severity="critical")
+        self.assertTrue(out["ok"], out)
+        self.assertEqual([r["severity"] for r in out["incidents"]], ["Critical"])
+        self.assertIn("ONE page", out.get("filter_note", ""),
+                      "a local filter over one page must not read as a "
+                      "tenant-wide answer")
+
+    def test_a_404_moves_on_to_the_next_host(self):
+        import mock_data
+        from client import SaseApiError
+        first, second = config.SCM_BASES[0], config.SCM_BASES[1]
+
+        class OnlySecondHost:
+            def incidents_search(self, body, tsg_id=None, region=None,
+                                 base=None):
+                if base == first:
+                    raise SaseApiError("nope", status=404)
+                return mock_data.incidents_search(body)
+
+        self.inc.SaseClient = OnlySecondHost
+        out = self.inc.query_incidents()
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["_meta"]["base"], second)
+
+    def test_total_failure_is_an_error_not_an_empty_list(self):
+        from client import SaseApiError
+
+        class Denied:
+            def incidents_search(self, body, tsg_id=None, region=None,
+                                 base=None):
+                raise SaseApiError("denied", status=403)
+
+        self.inc.SaseClient = Denied
+        out = self.inc.query_incidents()
+        self.assertFalse(out["ok"],
+                         "a failed lookup reported as zero incidents would "
+                         "read as 'all clear'")
+        self.assertEqual(len(out["attempts"]), len(config.SCM_BASES))
+
+    def test_details_round_trip_and_unknown_id(self):
+        self.assertTrue(self.inc.get_incident("INC-000482")["ok"])
+        self.assertFalse(self.inc.get_incident("nope")["ok"])
+        self.assertFalse(self.inc.get_incident("")["ok"])
+
+    def test_an_incident_id_cannot_change_the_path(self):
+        path = config.incident_details_path("x/../../config/v1?a=b#c")
+        tail = path[len(config.SCM_INCIDENTS_DETAILS_PREFIX):]
+        for ch in "/?#":
+            self.assertNotIn(ch, tail)
+
+    def _bases_with(self, override):
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith("PRISMA_")}
+        env.update(PRISMA_MOCK="1", PRISMA_INCIDENTS_BASE=override)
+        code = ("import sys, json; sys.path.insert(0, %r); import config; "
+                "print(json.dumps(config.SCM_BASES))" % MCP)
+        out = subprocess.run([sys.executable, "-c", code], env=env,
+                             stdout=subprocess.PIPE, check=True)
+        return json.loads(out.stdout.decode())
+
+    def test_base_override_cannot_send_the_token_off_panw_hosts(self):
+        for hostile in ("https://evil.example.com",
+                        "http://api.strata.paloaltonetworks.com",
+                        "https://paloaltonetworks.com.evil.example",
+                        "https://user@api.strata.paloaltonetworks.com"):
+            self.assertNotIn(hostile, self._bases_with(hostile), hostile)
+
+    def test_a_panw_base_override_is_tried_first(self):
+        good = "https://api.sase.paloaltonetworks.com"
+        self.assertEqual(self._bases_with(good)[0], good)
+
+    def test_discovery_reports_names_not_values(self):
+        from tools.discover_scm import discover_scm
+        out = discover_scm()
+        self.assertTrue(out["incidents_api_reachable"])
+        blob = json.dumps(out)
+        self.assertIn("severity", blob)
+        self.assertNotIn("INC-000482", blob,
+                         "discovery output is meant to be pasted into an "
+                         "issue -- it must not carry incident data")
 
 
 if __name__ == "__main__":

@@ -124,3 +124,60 @@ def adem(subpath, params):
             data["user"] = user
         return {"data": data}
     return {"data": {}}
+
+
+# --- SCM Unified Incidents (0.9.9) --------------------------------------------
+# Shape follows the community pan-scm-sdk models -- the live schema is NOT yet
+# verified, which is exactly what discover_scm is for.
+_INCIDENT_ROWS = [
+    {"incident_id": "INC-000482", "title": "Service Connection SC-TPE-01 tunnel down",
+     "severity": "Critical", "status": "Raised", "product": "Prisma Access",
+     "category": "connectivity", "raised_time": "2026-07-23T01:12:00Z",
+     "updated_time": "2026-07-23T01:20:00Z"},
+    {"incident_id": "INC-000479", "title": "RN-US-EAST bandwidth above 85%",
+     "severity": "High", "status": "Raised", "product": "Prisma Access",
+     "category": "capacity", "raised_time": "2026-07-22T20:40:00Z",
+     "updated_time": "2026-07-22T21:05:00Z"},
+    {"incident_id": "INC-000471", "title": "Experience score degraded for app o365",
+     "severity": "Medium", "status": "Raised", "product": "ADEM",
+     "category": "experience", "raised_time": "2026-07-22T16:05:00Z",
+     "updated_time": "2026-07-22T16:30:00Z"},
+    {"incident_id": "INC-000460", "title": "Device certificate nearing expiry",
+     "severity": "Low", "status": "Cleared", "product": "NGFW",
+     "category": "certificate", "raised_time": "2026-07-22T09:30:00Z",
+     "updated_time": "2026-07-22T11:00:00Z"},
+]
+
+
+def incidents_search(body=None):
+    """Canned incident search; honours filter rules and page_size like a server."""
+    body = body or {}
+    rows = list(_INCIDENT_ROWS)
+    for rule in (body.get("filter") or {}).get("rules") or []:
+        prop = rule.get("property")
+        want = {str(v).lower() for v in rule.get("values") or []}
+        if prop and want:
+            rows = [r for r in rows if str(r.get(prop, "")).lower() in want]
+    page = body.get("pagination") or {}
+    size = page.get("page_size") or len(rows) or 1
+    return {"data": rows[:size],
+            "pagination": {"page_size": size,
+                           "page_number": page.get("page_number", 1),
+                           "total": len(rows)}}
+
+
+def incident_details(incident_id):
+    """Canned incident detail; unknown ids 404 like the live API would."""
+    for row in _INCIDENT_ROWS:
+        if row["incident_id"] == str(incident_id):
+            return {"data": dict(
+                row,
+                alerts=[{"alert_id": "A-10231", "title": row["title"],
+                         "state": row["status"]}],
+                impacted={"tunnel_names": ["SC-TPE-01-ipsec1"],
+                          "site_names": ["TPE-DC"]},
+                remediation=["Check the IPSec peer and IKE gateway status.",
+                             "Verify the service connection's BGP session."])}
+    from client import SaseApiError
+    raise SaseApiError("Not found (mock 404) on /incidents/v1/details/%s."
+                       % incident_id, status=404)

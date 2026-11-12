@@ -12,6 +12,8 @@ Diagnostics:
     python server.py --selfcheck   interpreter/deps/credential status, then exit
     python server.py --discover    probe the tenant's real Insights resource/view
                                    names (read-only), print JSON, then exit
+    python server.py --discover-scm  probe how the tenant serves the SCM
+                                   Incidents API (read-only), print JSON, exit
 """
 import sys
 
@@ -278,6 +280,7 @@ if _missing_pkgs:
 from typing import Optional
 
 from tools.discover import discover_insights as _discover_insights
+from tools.discover_scm import discover_scm as _discover_scm
 
 # --discover: run the read-only endpoint discovery from the CLI (no MCP host
 # needed -- credentials come from the environment / ~/.prisma-sase.env).
@@ -287,6 +290,14 @@ if "--discover" in sys.argv:
     print(_json.dumps(_result, indent=2, ensure_ascii=False))
     sys.exit(0 if _result.get("ok") and _result.get("control_probe_ok") else 1)
 
+# --discover-scm: probe how this tenant serves the SCM Incidents API (read-only
+# search POSTs, page_size 1). Prints field NAMES only, never incident values.
+if "--discover-scm" in sys.argv:
+    import json as _json
+    _result = _discover_scm()
+    print(_json.dumps(_result, indent=2, ensure_ascii=False))
+    sys.exit(0 if _result.get("incidents_api_reachable") else 1)
+
 from fastmcp import FastMCP
 
 from tools.status import get_sase_status as _get_sase_status
@@ -294,6 +305,8 @@ from tools.alerts import query_alerts as _query_alerts
 from tools.networks import get_remote_networks as _get_remote_networks
 from tools.users import get_connected_users as _get_connected_users
 from tools.adem import get_user_experience as _get_user_experience
+from tools.incidents import get_incident as _get_incident
+from tools.incidents import query_incidents as _query_incidents
 
 mcp = FastMCP("prisma-sase")
 
@@ -400,6 +413,49 @@ def discover_insights(kind: Optional[str] = None,
     return _discover_insights(kind=kind, tsg_id=tsg_id, region=region)
 
 
+@mcp.tool()
+def query_incidents(severity: Optional[str] = None,
+                    status: Optional[str] = None, limit: int = 20,
+                    page: int = 1, tsg_id: Optional[str] = None,
+                    region: Optional[str] = None) -> dict:
+    """Search Strata Cloud Manager incidents (Unified Incident Framework):
+    per-incident rows WITH severity, across the products SCM manages. Use when
+    query_alerts reports severity_unavailable, or for "any critical
+    incidents", "P1 事件有哪些", "哪些事件還沒清掉". Optional severity
+    (critical/high/medium/low) and status (e.g. raised/cleared) filters; limit
+    default 20, max 100; page for more. This integration is UNVERIFIED on a
+    live tenant until confirmed -- always relay the _verify note, and if the
+    call fails run discover_scm. Read-only."""
+    _audit("query_incidents", severity=severity, status=status, limit=limit,
+           page=page, tsg_id=tsg_id, region=region)
+    return _query_incidents(severity=severity, status=status, limit=limit,
+                            page=page, tsg_id=tsg_id, region=region)
+
+
+@mcp.tool()
+def get_incident(incident_id: str, tsg_id: Optional[str] = None,
+                 region: Optional[str] = None) -> dict:
+    """Full detail for ONE Strata Cloud Manager incident: its alerts, impacted
+    objects and remediation guidance. Take incident_id from query_incidents.
+    Long lists are truncated with a marker. Read-only."""
+    _audit("get_incident", incident_id=incident_id, tsg_id=tsg_id,
+           region=region)
+    return _get_incident(incident_id, tsg_id=tsg_id, region=region)
+
+
+@mcp.tool()
+def discover_scm(tsg_id: Optional[str] = None,
+                 region: Optional[str] = None) -> dict:
+    """Probe how THIS tenant serves the SCM Incidents API: which host answers,
+    which request-body shape it accepts, and the real response field names.
+    Use on first setup, or when query_incidents fails or carries a _verify
+    note. Sends only the documented read-only search with page_size 1, and
+    returns field NAMES and counts -- never incident values -- so the output
+    is safe to paste into an issue. Read-only."""
+    _audit("discover_scm", tsg_id=tsg_id, region=region)
+    return _discover_scm(tsg_id=tsg_id, region=region)
+
+
 def main():
     d = config.env_diagnostics()
     log.info("prisma-sase plugin v%s", config.PLUGIN_VERSION)
@@ -436,7 +492,8 @@ def main():
                     "offline, or run with --selfcheck to diagnose.", d["missing"])
     log.info("prisma-sase MCP server ready (stdio). Tools: get_sase_status, "
              "query_alerts, get_remote_networks, get_connected_users, "
-             "get_user_experience, discover_insights.")
+             "get_user_experience, discover_insights, query_incidents, "
+             "get_incident, discover_scm.")
     mcp.run()
 
 

@@ -398,3 +398,19 @@ never installed"** — the user has the Skill only. Offer this first:
 - `references/runbooks.md` — step-by-step diagnostic plays ("user says it's
   slow", "is there an outage", "capacity check").
 - `templates/weekly-report.md` — structure for the tenant health weekly report.
+
+## SCM incidents (server 0.9.9+, unverified integration)
+
+If the tool list has `query_incidents`:
+
+- Reach for it when `query_alerts` returns `severity_unavailable: true`, or
+  when the user asks about incidents / 事件 / P1 by severity. It returns one
+  row per incident with severity; `get_incident` gives the detail for one id.
+- Its responses carry a `_verify` note until a live tenant has confirmed the
+  integration. **Relay that note** — do not present the figures as settled.
+- `counts_note` / `filter_note` mean the counts cover one page only. Say so;
+  never call a one-page count the tenant-wide breakdown.
+- If it fails, run `discover_scm` and relay its notes. A failure here is not
+  "no incidents" — never report an error as an all-clear.
+- Incidents (SCM) and alerts (Insights) are different sources with different
+  totals. Name the source of each number and do not add them together.
