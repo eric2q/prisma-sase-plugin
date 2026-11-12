@@ -5,7 +5,8 @@ Exposes four read-only tools over stdio for Claude Desktop / Cowork:
     get_sase_status, query_alerts, get_connected_users, get_user_experience
 
 Design doc sec.8/sec.10: stdio transport, credentials from environment only,
-and no write/commit/push path anywhere. Set PRISMA_MOCK=1 to run offline with
+and no write/commit/push path on the SASE side (the PAN-OS tools write only
+for a tenant whose operator set allow_write). Set PRISMA_MOCK=1 to run offline with
 sample data (no credentials or network required).
 
 Diagnostics:
@@ -141,6 +142,11 @@ def _selfcheck():
                  " -- fell back to %s" % d["env_file"] if d["env_file"]
                  else " and no other env file was found"))
     print("  region:       %s" % (d["region"] or "(not set)"))
+    print("  tenants:      %s" % (", ".join(
+        "%s(%s)" % (n, config.TENANTS[n]["kind"])
+        for n in sorted(config.TENANTS)) or "none"))
+    for _problem in config.TENANT_PROBLEMS:
+        print("  TENANTS:      WARNING -- %s" % _problem)
     print("  credentials:  %s" % ("all 4 required vars set" if not d["missing"]
                                   else "MISSING: " + ", ".join(d["missing"])))
     # Credentials reach the server through the Local MCP entry's env block --
@@ -308,51 +314,92 @@ from tools.adem import get_user_experience as _get_user_experience
 from tools.incidents import get_incident as _get_incident
 from tools.incidents import query_incidents as _query_incidents
 
+from tools import panos as _panos
+from tools.tenants import list_tenants as _list_tenants
+
 mcp = FastMCP("prisma-sase")
 
 
 def _audit(tool, **params):
     """Per-call audit log: tool name + non-null param summary only.
 
-    Never logs the token, the client secret, or any response body (design doc
-    sec.7). tsg_id/region are operational context, not secrets, so they are kept
-    to make multi-tenant demos traceable.
+    Never logs the token, the client secret, an API key, or any response body
+    (design doc sec.7). tenant/tsg_id/region are operational context, not
+    secrets, so they are kept to make multi-tenant work traceable. PAN-OS
+    payloads are summarised (lengths, action, xpath) rather than logged: a
+    config element can itself contain a password.
     """
     summary = {k: v for k, v in params.items() if v is not None}
     log.info("tool_call %s %s", tool, summary)
 
 
+def _sase_ctx(tool, tenant, tsg_id, region):
+    """Resolve a tenant NAME to (tsg_id, region); third item is an error dict."""
+    try:
+        tsg_id, region = config.resolve_sase_ctx(tenant, tsg_id, region)
+        return tsg_id, region, None
+    except config.TenantError as e:
+        return None, None, {
+            "ok": False, "tool": tool, "error": str(e),
+            "hint": "list_tenants shows every configured environment and "
+                    "its kind."}
+
+
 @mcp.tool()
-def get_sase_status(tsg_id: Optional[str] = None,
+def list_tenants() -> dict:
+    """List the environments this server can reach and what KIND each is:
+    'prisma_access' (a Prisma Access / SASE tenant, used with the SASE tools)
+    or 'ngfw' (an on-prem firewall or Panorama reached directly, used with
+    the panos_* tools). Shows names, defaults, TSG/region or host, and
+    whether writes are enabled -- never a secret. Call this first when the
+    user names a customer, site or firewall, or when it is unclear which
+    environment they mean. Read-only."""
+    _audit("list_tenants")
+    return _list_tenants()
+
+
+@mcp.tool()
+def get_sase_status(tenant: Optional[str] = None,
+                    tsg_id: Optional[str] = None,
                     region: Optional[str] = None) -> dict:
     """Prisma SASE health overview in a single call: alert counts by severity,
     tunnel up/down for remote networks & service connections, currently
     connected Mobile Users, and the overall ADEM experience score. Use this for
     vague "how is SASE doing / any problems right now?" questions. Also returns
     plugin_version -- use it when the user asks which plugin version they are
-    running. Read-only. Optional tsg_id/region override the default tenant
-    (handy for multi-customer demos)."""
-    _audit("get_sase_status", tsg_id=tsg_id, region=region)
+    running. Read-only. Optional tenant names a Prisma Access tenant from
+    list_tenants (the default tenant if omitted); tsg_id/region still work as
+    direct overrides."""
+    _audit("get_sase_status", tenant=tenant, tsg_id=tsg_id, region=region)
+    tsg_id, region, err = _sase_ctx("get_sase_status", tenant, tsg_id, region)
+    if err:
+        return err
     return _get_sase_status(tsg_id=tsg_id, region=region)
 
 
 @mcp.tool()
 def query_alerts(severity: Optional[str] = None, state: Optional[str] = None,
                  hours: int = 24, limit: int = 20,
+                 tenant: Optional[str] = None,
                  tsg_id: Optional[str] = None, region: Optional[str] = None) -> dict:
     """Query Prisma Access alerts (Insights 3.0). Filter by severity
     (critical/high/medium/low), state (e.g. raised/cleared), and a look-back
     window in hours (default 24). Returns counts by severity plus a slimmed,
-    paginated list (limit default 20, max 100). Read-only."""
+    paginated list (limit default 20, max 100). Optional tenant names a Prisma
+    Access tenant from list_tenants. Read-only."""
     _audit("query_alerts", severity=severity, state=state, hours=hours,
-           limit=limit, tsg_id=tsg_id, region=region)
+           limit=limit, tenant=tenant, tsg_id=tsg_id, region=region)
+    tsg_id, region, err = _sase_ctx("query_alerts", tenant, tsg_id, region)
+    if err:
+        return err
     return _query_alerts(severity=severity, state=state, hours=hours,
                          limit=limit, tsg_id=tsg_id, region=region)
 
 
 @mcp.tool()
 def get_remote_networks(state: Optional[str] = None, hours: int = 1,
-                        limit: int = 20, tsg_id: Optional[str] = None,
+                        limit: int = 20, tenant: Optional[str] = None,
+                        tsg_id: Optional[str] = None,
                         region: Optional[str] = None) -> dict:
     """Tunnel status rows for Remote Networks / Service Connections (Insights
     3.0 tunnels view): per-tunnel site, name, type, up/down state, monitoring
@@ -362,21 +409,32 @@ def get_remote_networks(state: Optional[str] = None, hours: int = 1,
     UNITS: throughput fields are in Kbps (field names end in _kbps; divide by
     1000 for Mbps -- 8042.58 means ~8 Mbps, NOT 8 Gbps), and 'peak' is the max
     per-minute sample within the time bucket, not an absolute instantaneous
-    value. Read-only."""
+    value. Optional tenant names a Prisma Access tenant from list_tenants.
+    Read-only."""
     _audit("get_remote_networks", state=state, hours=hours, limit=limit,
-           tsg_id=tsg_id, region=region)
+           tenant=tenant, tsg_id=tsg_id, region=region)
+    tsg_id, region, err = _sase_ctx("get_remote_networks", tenant, tsg_id,
+                                    region)
+    if err:
+        return err
     return _get_remote_networks(state=state, hours=hours, limit=limit,
                                 tsg_id=tsg_id, region=region)
 
 
 @mcp.tool()
 def get_connected_users(hours: int = 24, limit: int = 20,
+                        tenant: Optional[str] = None,
                         tsg_id: Optional[str] = None,
                         region: Optional[str] = None) -> dict:
     """Currently connected Mobile Users: total count, short-term trend, and
-    distribution by location (Insights 3.0). Read-only."""
-    _audit("get_connected_users", hours=hours, limit=limit,
+    distribution by location (Insights 3.0). Optional tenant names a Prisma
+    Access tenant from list_tenants. Read-only."""
+    _audit("get_connected_users", hours=hours, limit=limit, tenant=tenant,
            tsg_id=tsg_id, region=region)
+    tsg_id, region, err = _sase_ctx("get_connected_users", tenant, tsg_id,
+                                    region)
+    if err:
+        return err
     return _get_connected_users(hours=hours, limit=limit,
                                 tsg_id=tsg_id, region=region)
 
@@ -384,14 +442,21 @@ def get_connected_users(hours: int = 24, limit: int = 20,
 @mcp.tool()
 def get_user_experience(user: Optional[str] = None, app: Optional[str] = None,
                         hours: int = 24, endpoint_type: Optional[str] = None,
+                        tenant: Optional[str] = None,
                         tsg_id: Optional[str] = None,
                         region: Optional[str] = None) -> dict:
     """ADEM experience score (Telemetry v2): overall, or for a specific
     user/app, with a component breakdown (LAN/WiFi/DNS/app) and a rating band.
     Use when a user "says it's slow" or to check experience health. Scores below
-    70 indicate degradation. Read-only."""
+    70 indicate degradation. Optional tenant names a Prisma Access tenant from
+    list_tenants. Read-only."""
     _audit("get_user_experience", user=user, app=app, hours=hours,
-           endpoint_type=endpoint_type, tsg_id=tsg_id, region=region)
+           endpoint_type=endpoint_type, tenant=tenant, tsg_id=tsg_id,
+           region=region)
+    tsg_id, region, err = _sase_ctx("get_user_experience", tenant, tsg_id,
+                                    region)
+    if err:
+        return err
     return _get_user_experience(user=user, app=app, hours=hours,
                                 endpoint_type=endpoint_type,
                                 tsg_id=tsg_id, region=region)
@@ -399,6 +464,7 @@ def get_user_experience(user: Optional[str] = None, app: Optional[str] = None,
 
 @mcp.tool()
 def discover_insights(kind: Optional[str] = None,
+                      tenant: Optional[str] = None,
                       tsg_id: Optional[str] = None,
                       region: Optional[str] = None) -> dict:
     """Probe which Insights 3.0 resource/view names THIS tenant actually
@@ -408,15 +474,21 @@ def discover_insights(kind: Optional[str] = None,
     auth/region problems from naming problems. Returns working names, each
     view's real field names, and a paste-ready PRISMA_INSIGHTS_MAP suggestion.
     Optional kind filters to one family: alerts / connected_users /
-    remote_networks."""
-    _audit("discover_insights", kind=kind, tsg_id=tsg_id, region=region)
+    remote_networks. Optional tenant names a Prisma Access tenant."""
+    _audit("discover_insights", kind=kind, tenant=tenant, tsg_id=tsg_id,
+           region=region)
+    tsg_id, region, err = _sase_ctx("discover_insights", tenant, tsg_id,
+                                    region)
+    if err:
+        return err
     return _discover_insights(kind=kind, tsg_id=tsg_id, region=region)
 
 
 @mcp.tool()
 def query_incidents(severity: Optional[str] = None,
                     status: Optional[str] = None, limit: int = 20,
-                    page: int = 1, tsg_id: Optional[str] = None,
+                    page: int = 1, tenant: Optional[str] = None,
+                    tsg_id: Optional[str] = None,
                     region: Optional[str] = None) -> dict:
     """Search Strata Cloud Manager incidents (Unified Incident Framework):
     per-incident rows WITH severity, across the products SCM manages. Use when
@@ -425,35 +497,135 @@ def query_incidents(severity: Optional[str] = None,
     (critical/high/medium/low) and status (e.g. raised/cleared) filters; limit
     default 20, max 100; page for more. This integration is UNVERIFIED on a
     live tenant until confirmed -- always relay the _verify note, and if the
-    call fails run discover_scm. Read-only."""
+    call fails run discover_scm. Optional tenant names a Prisma Access tenant.
+    Read-only."""
     _audit("query_incidents", severity=severity, status=status, limit=limit,
-           page=page, tsg_id=tsg_id, region=region)
+           page=page, tenant=tenant, tsg_id=tsg_id, region=region)
+    tsg_id, region, err = _sase_ctx("query_incidents", tenant, tsg_id, region)
+    if err:
+        return err
     return _query_incidents(severity=severity, status=status, limit=limit,
                             page=page, tsg_id=tsg_id, region=region)
 
 
 @mcp.tool()
-def get_incident(incident_id: str, tsg_id: Optional[str] = None,
+def get_incident(incident_id: str, tenant: Optional[str] = None,
+                 tsg_id: Optional[str] = None,
                  region: Optional[str] = None) -> dict:
     """Full detail for ONE Strata Cloud Manager incident: its alerts, impacted
-    objects and remediation guidance. Take incident_id from query_incidents.
-    Long lists are truncated with a marker. Read-only."""
-    _audit("get_incident", incident_id=incident_id, tsg_id=tsg_id,
-           region=region)
+    objects and remediation guidance. Take incident_id from query_incidents
+    (and use the same tenant). Long lists are truncated with a marker.
+    Read-only."""
+    _audit("get_incident", incident_id=incident_id, tenant=tenant,
+           tsg_id=tsg_id, region=region)
+    tsg_id, region, err = _sase_ctx("get_incident", tenant, tsg_id, region)
+    if err:
+        return err
     return _get_incident(incident_id, tsg_id=tsg_id, region=region)
 
 
 @mcp.tool()
-def discover_scm(tsg_id: Optional[str] = None,
+def discover_scm(tenant: Optional[str] = None, tsg_id: Optional[str] = None,
                  region: Optional[str] = None) -> dict:
     """Probe how THIS tenant serves the SCM Incidents API: which host answers,
     which request-body shape it accepts, and the real response field names.
     Use on first setup, or when query_incidents fails or carries a _verify
     note. Sends only the documented read-only search with page_size 1, and
     returns field NAMES and counts -- never incident values -- so the output
-    is safe to paste into an issue. Read-only."""
-    _audit("discover_scm", tsg_id=tsg_id, region=region)
+    is safe to paste into an issue. Optional tenant names a Prisma Access
+    tenant. Read-only."""
+    _audit("discover_scm", tenant=tenant, tsg_id=tsg_id, region=region)
+    tsg_id, region, err = _sase_ctx("discover_scm", tenant, tsg_id, region)
+    if err:
+        return err
     return _discover_scm(tsg_id=tsg_id, region=region)
+
+
+# --- On-prem NGFW / Panorama, reached directly over the PAN-OS XML API -------
+@mcp.tool()
+def panos_system_info(tenant: Optional[str] = None) -> dict:
+    """ON-PREM FIREWALL (direct PAN-OS XML API, not Prisma Access): 'show
+    system info' for an NGFW or Panorama -- hostname, model, serial, PAN-OS
+    version, uptime. tenant names an 'ngfw' tenant from list_tenants (the
+    default NGFW if omitted). Read-only."""
+    _audit("panos_system_info", tenant=tenant)
+    return _panos.panos_system_info(tenant=tenant)
+
+
+@mcp.tool()
+def panos_op_command(xml_cmd: str, tenant: Optional[str] = None) -> dict:
+    """ON-PREM FIREWALL (direct PAN-OS XML API): run an operational command
+    given in XML form, e.g. <show><interface>all</interface></show> or
+    <show><routing><route></route></routing></show>. <show> commands are
+    always allowed and read-only. Any other command (request, clear, test,
+    debug ...) acts on the firewall and is refused unless the operator has
+    write-enabled that tenant -- and even then, call it only after the user
+    has explicitly confirmed that exact command for that exact firewall in
+    this conversation. tenant names an 'ngfw' tenant from list_tenants."""
+    _audit("panos_op_command", tenant=tenant, xml_chars=len(xml_cmd or ""))
+    return _panos.panos_op_command(xml_cmd, tenant=tenant)
+
+
+@mcp.tool()
+def panos_config_action(action: str, xpath: str,
+                        element_xml: Optional[str] = None,
+                        newname: Optional[str] = None,
+                        from_path: Optional[str] = None,
+                        dst: Optional[str] = None,
+                        where: Optional[str] = None,
+                        tenant: Optional[str] = None) -> dict:
+    """ON-PREM FIREWALL (direct PAN-OS XML API): a configuration API action on
+    an XPath. action 'get' (candidate config) and 'show' (running config) are
+    read-only and always allowed; secrets in the result are redacted. The
+    write actions -- set, edit, delete, rename, clone, move, override --
+    change the CANDIDATE configuration and are refused unless the operator has
+    write-enabled that tenant. Before any write: state the action, the XPath
+    and the tenant to the user and get an explicit yes in this conversation.
+    A write is not live until committed, which is a separate, separately
+    confirmed step. element_xml is the XML for set/edit; newname for
+    rename/clone; from_path for clone; dst and where (before/after/top/bottom)
+    for move. tenant names an 'ngfw' tenant from list_tenants."""
+    _audit("panos_config_action", tenant=tenant, action=action, xpath=xpath,
+           has_element=bool(element_xml))
+    return _panos.panos_config_action(action, xpath, element_xml=element_xml,
+                                      newname=newname, from_path=from_path,
+                                      dst=dst, where=where, tenant=tenant)
+
+
+# The two commit tools exist ONLY when some NGFW tenant's operator has enabled
+# writes. On an ordinary read-only install they are not registered at all, so
+# the assistant cannot discover them, let alone call them.
+if config.any_ngfw_write():
+    @mcp.tool()
+    def panos_commit_config(force: bool = False,
+                            partial_xml: Optional[str] = None,
+                            tenant: Optional[str] = None) -> dict:
+        """ON-PREM FIREWALL: COMMIT the candidate configuration -- this makes
+        pending changes live on a production device. Only call after the user
+        has explicitly confirmed, in this conversation, a commit on this
+        specific tenant. force adds <force>; partial_xml is an optional
+        <partial>...</partial> element. Returns a job id; the commit is
+        asynchronous, so check the job before saying it succeeded."""
+        _audit("panos_commit_config", tenant=tenant, force=force,
+               partial=bool(partial_xml))
+        return _panos.panos_commit_config(force=force,
+                                          partial_xml=partial_xml,
+                                          tenant=tenant)
+
+    @mcp.tool()
+    def panos_commit_all_shared_policy(device_group: Optional[str] = None,
+                                       validate_only: bool = False,
+                                       tenant: Optional[str] = None) -> dict:
+        """PANORAMA: PUSH shared policy to managed firewalls (optionally one
+        device_group). This changes what many production firewalls enforce.
+        Only call after the user has explicitly confirmed the push and its
+        scope in this conversation; prefer validate_only=True first. Returns
+        a job id; check the job before saying it succeeded."""
+        _audit("panos_commit_all_shared_policy", tenant=tenant,
+               device_group=device_group, validate_only=validate_only)
+        return _panos.panos_commit_all_shared_policy(
+            device_group=device_group, validate_only=validate_only,
+            tenant=tenant)
 
 
 def main():
@@ -490,10 +662,11 @@ def main():
         log.warning("Missing env vars %s -- live calls will return actionable "
                     "errors until these are set. Set PRISMA_MOCK=1 to demo "
                     "offline, or run with --selfcheck to diagnose.", d["missing"])
-    log.info("prisma-sase MCP server ready (stdio). Tools: get_sase_status, "
-             "query_alerts, get_remote_networks, get_connected_users, "
-             "get_user_experience, discover_insights, query_incidents, "
-             "get_incident, discover_scm.")
+    for _problem in config.TENANT_PROBLEMS:
+        log.warning("tenants: %s", _problem)
+    log.info("prisma-sase MCP server ready (stdio). Tenants: %s. PAN-OS write "
+             "tools: %s.", ", ".join(sorted(config.TENANTS)) or "none",
+             "registered" if config.any_ngfw_write() else "not registered")
     mcp.run()
 
 

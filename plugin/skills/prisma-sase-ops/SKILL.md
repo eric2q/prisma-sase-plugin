@@ -414,3 +414,38 @@ If the tool list has `query_incidents`:
   "no incidents" — never report an error as an all-clear.
 - Incidents (SCM) and alerts (Insights) are different sources with different
   totals. Name the source of each number and do not add them together.
+
+## Environments: tenants, Prisma Access vs on-prem NGFW (server 0.10.0+)
+
+If the tool list has `list_tenants`, the server can reach several
+environments of two different kinds. Pick the kind before the tool:
+
+| The user is talking about | Kind | Tools |
+|---|---|---|
+| Prisma Access, SASE, a TSG, Mobile Users, Remote Networks, ADEM | `prisma_access` | the SASE tools (`get_sase_status`, `query_alerts`, `query_incidents`, ...) |
+| A firewall, NGFW, a PA-series box, Panorama, 地端防火牆, 直連 | `ngfw` | `panos_system_info`, `panos_op_command`, `panos_config_action` |
+
+- When a customer, site or device is named, or it is unclear which
+  environment is meant, call `list_tenants` first and pass `tenant=<name>`.
+  Do not guess a tenant, and do not fall back to the default when the user
+  named a different one.
+- Say which tenant every figure came from. Never merge numbers from two
+  tenants, or from a firewall and a Prisma Access tenant, into one statement.
+- A wrong-kind error is not a fault: it names the right tool family. Use it.
+- Hosts, TSG IDs and credentials are configured on the user's machine. Never
+  ask for an API key, secret or firewall address in the conversation; if a
+  tenant is missing, point at `~/.prisma-sase-tenants.json` in the README.
+
+**Changing a firewall.** Most installs are read-only and the server will
+refuse. Where a tenant is write-enabled:
+
+1. Before any write (`panos_config_action` set/edit/delete/..., a non-`show`
+   `panos_op_command`), state the exact action, XPath or command, and the
+   tenant, and wait for an explicit yes. A general "go ahead and fix it" is
+   not that yes.
+2. A config write only changes the candidate configuration. Committing is a
+   separate step with its own explicit confirmation.
+3. A commit is asynchronous. Check the job before saying it succeeded.
+4. If a write is refused as `write_blocked`, say so and stop. Enabling writes
+   is the operator's decision, made on their machine — never suggest a
+   workaround, and never try the same change through another tool.

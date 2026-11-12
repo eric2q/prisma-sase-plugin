@@ -1853,9 +1853,12 @@ class MockDataIsLabelled(unittest.TestCase):
              "from tools.discover import discover_insights\n"
              "from tools.incidents import query_incidents\n"
              "from tools.discover_scm import discover_scm\n"
+             "from tools.panos import panos_system_info\n"
+             "from tools.tenants import list_tenants\n"
              "TOOLS = (get_sase_status, query_alerts, get_remote_networks,\n"
              "         get_connected_users, get_user_experience,\n"
-             "         discover_insights, query_incidents, discover_scm)\n")
+             "         discover_insights, query_incidents, discover_scm,\n"
+             "         panos_system_info, list_tenants)\n")
 
     def _run(self, body, mock):
         env = {k: v for k, v in os.environ.items()
@@ -1918,10 +1921,13 @@ class MockSmokeTest(unittest.TestCase):
                 "from tools.discover import discover_insights\n"
                 "from tools.incidents import query_incidents\n"
                 "from tools.discover_scm import discover_scm\n"
+                "from tools.panos import panos_system_info\n"
+                "from tools.tenants import list_tenants\n"
                 "bad = [f.__name__ for f in (get_sase_status, query_alerts,\n"
                 "        get_remote_networks, get_connected_users,\n"
                 "        get_user_experience, discover_insights,\n"
-                "        query_incidents, discover_scm)\n"
+                "        query_incidents, discover_scm, panos_system_info,\n"
+                "        list_tenants)\n"
                 "       if not f().get('ok')]\n"
                 "print(','.join(bad) if bad else 'ALL_OK')" % MCP)
         out = subprocess.run([sys.executable, "-c", code],
@@ -2059,6 +2065,220 @@ class ScmIncidents(unittest.TestCase):
         self.assertNotIn("INC-000482", blob,
                          "discovery output is meant to be pasted into an "
                          "issue -- it must not carry incident data")
+
+
+class TenantsAndPanos(unittest.TestCase):
+    """0.10.0 -- tenants, and the PAN-OS tools merged from pan-os-mcp.
+
+    One server now reaches two kinds of environment: Prisma Access tenants
+    through the cloud, and on-prem firewalls directly. These pin what keeps
+    that safe: a tenant is a NAME resolved on the operator's machine, the two
+    kinds cannot be mistaken for each other, each tenant authenticates as
+    itself, no secret is ever printed, and a firewall cannot be changed until
+    its operator says so.
+    """
+
+    TWO = {"default": {"prisma_access": "lab", "ngfw": "fw-a"},
+           "tenants": {
+               "lab": {"kind": "prisma_access", "tsg_id": "111",
+                       "region": "sg", "client_id": "id-lab",
+                       "secret_cmd": "echo s3cret-lab"},
+               "cust": {"kind": "prisma_access", "tsg_id": "222",
+                        "region": "us", "client_id": "id-cust",
+                        "client_secret": "PLAINTEXT-CUST"},
+               "fw-a": {"kind": "ngfw", "host": "fw-a.example.com",
+                        "api_key": "KEY-FW-A"},
+               "fw-b": {"kind": "ngfw", "host": "https://fw-b.example.com/",
+                        "api_key_cmd": "echo KEY-FW-B", "allow_write": True,
+                        "verify_tls": False}}}
+
+    def _py(self, body, tenants=None, **env_extra):
+        """Run ``body`` in a clean interpreter with its own HOME, so a
+        developer's real tenants file can never leak into (or out of) a test."""
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        if tenants is not None:
+            path = os.path.join(home, ".prisma-sase-tenants.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(tenants, fh)
+            os.chmod(path, 0o600)
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith(("PRISMA_", "PANOS_"))}
+        env.update(HOME=home, USERPROFILE=home)
+        env.update(env_extra)
+        code = ("import sys, json; sys.path.insert(0, %r)\nimport config\n%s"
+                % (MCP, body))
+        out = subprocess.run([sys.executable, "-c", code], env=env,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(out.returncode, 0, out.stderr.decode())
+        return json.loads(out.stdout.decode().strip().splitlines()[-1])
+
+    def test_a_tenant_name_selects_tsg_and_region(self):
+        got = self._py(
+            "print(json.dumps([config.resolve_sase_ctx('cust'),"
+            " config.resolve_sase_ctx(),"
+            " config.resolve_sase_ctx(None, '222')]))", tenants=self.TWO)
+        self.assertEqual(got, [["222", "us"], ["111", "sg"], ["222", "us"]])
+
+    def test_each_tenant_authenticates_as_itself(self):
+        got = self._py(
+            "print(json.dumps([list(config.credentials_for('111')),"
+            " list(config.credentials_for('222'))]))", tenants=self.TWO)
+        self.assertEqual(got, [["id-lab", "s3cret-lab"],
+                               ["id-cust", "PLAINTEXT-CUST"]],
+                         "querying customer B with customer A's service "
+                         "account is the multi-tenant bug to never ship")
+
+    def test_the_two_kinds_cannot_be_mistaken_for_each_other(self):
+        got = self._py(
+            "errs = []\n"
+            "for name, kind in (('fw-a', config.KIND_SASE),"
+            " ('lab', config.KIND_NGFW), ('nope', config.KIND_SASE)):\n"
+            "    try:\n"
+            "        config.get_tenant(name, kind); errs.append('')\n"
+            "    except config.TenantError as e:\n"
+            "        errs.append(str(e))\n"
+            "print(json.dumps(errs))", tenants=self.TWO)
+        self.assertIn("panos_", got[0])
+        self.assertIn("SASE tools", got[1])
+        self.assertIn("lab", got[2])
+
+    def test_an_environment_only_install_is_unchanged(self):
+        got = self._py(
+            "print(json.dumps([config.resolve_sase_ctx(),"
+            " list(config.credentials_for('999')), sorted(config.TENANTS),"
+            " config.missing_credentials()]))",
+            PRISMA_TSG_ID="999", PRISMA_REGION="sg", PRISMA_CLIENT_ID="cid",
+            PRISMA_CLIENT_SECRET="sec")
+        self.assertEqual(got, [["999", "sg"], ["cid", "sec"], ["default"], []])
+
+    def test_a_tenants_file_alone_is_a_complete_install(self):
+        got = self._py("print(json.dumps([config.missing_credentials(),"
+                       " config.resolve_tsg(), config.resolve_region()]))",
+                       tenants=self.TWO)
+        self.assertEqual(got, [[], "111", "sg"])
+
+    def test_list_tenants_never_prints_a_secret(self):
+        got = self._py("from tools.tenants import list_tenants\n"
+                       "print(json.dumps(list_tenants()))", tenants=self.TWO)
+        blob = json.dumps(got)
+        for secret in ("PLAINTEXT-CUST", "KEY-FW-A", "KEY-FW-B",
+                       "s3cret-lab", "echo "):
+            self.assertNotIn(secret, blob)
+        rows = {r["name"]: r for r in got["tenants"]}
+        self.assertEqual(sorted(rows), ["cust", "fw-a", "fw-b", "lab"])
+        self.assertEqual(rows["cust"]["credentials"], "plaintext_in_file")
+        self.assertEqual(rows["lab"]["credentials"], "command")
+        self.assertTrue(rows["fw-b"]["write_enabled"])
+        self.assertFalse(rows["fw-a"]["write_enabled"])
+        self.assertEqual(rows["fw-b"]["tls_verification"], "DISABLED")
+        self.assertEqual(rows["fw-b"]["host"], "fw-b.example.com")
+
+    def test_a_firewall_cannot_be_changed_until_its_operator_allows_it(self):
+        got = self._py(
+            "from tools import panos\n"
+            "el = \"<entry name='x'><ip-netmask>1.1.1.1</ip-netmask></entry>\"\n"
+            "r = [panos.panos_op_command('<request><restart><system></system>"
+            "</restart></request>', tenant='fw-a'),\n"
+            "     panos.panos_config_action('set', '/config/shared/address',"
+            " el, tenant='fw-a'),\n"
+            "     panos.panos_commit_config(tenant='fw-a'),\n"
+            "     panos.panos_commit_all_shared_policy(tenant='fw-a'),\n"
+            "     panos.panos_op_command('<show><system><info></info></system>"
+            "</show>', tenant='fw-a'),\n"
+            "     panos.panos_config_action('get', '/config/mgt-config/users',"
+            " tenant='fw-a'),\n"
+            "     panos.panos_commit_config(tenant='fw-b'),\n"
+            "     panos.panos_config_action('set', '/config/shared/address',"
+            " el, tenant='fw-b')]\n"
+            "print(json.dumps([[x.get('ok'), bool(x.get('write_blocked'))]"
+            " for x in r]))", tenants=self.TWO, PRISMA_MOCK="1")
+        self.assertEqual(got[:4], [[False, True]] * 4,
+                         "restart / config set / commit / Panorama push must "
+                         "all be refused on a tenant that is not write-enabled")
+        self.assertEqual(got[4:6], [[True, False]] * 2,
+                         "<show> and config get are reads and stay available")
+        self.assertEqual(got[6:], [[True, False]] * 2,
+                         "a tenant the operator write-enabled does accept them")
+
+    def test_config_reads_redact_password_material(self):
+        got = self._py(
+            "from tools import panos\n"
+            "print(json.dumps(panos.panos_config_action('get',"
+            " '/config/mgt-config/users')))", PRISMA_MOCK="1")
+        blob = json.dumps(got)
+        self.assertNotIn("$1$sample$hash", blob)
+        self.assertIn("<redacted>", blob)
+
+    def test_the_api_key_travels_in_a_header_over_verified_tls(self):
+        got = self._py(
+            "from tools import panos\n"
+            "seen = {}\n"
+            "class R:\n"
+            "    status_code = 200\n"
+            "    text = '<response status=\"success\"><result><ok>yes</ok>"
+            "</result></response>'\n"
+            "def fake(url, **kw):\n"
+            "    seen.update(url=url, data=kw.get('data'),"
+            " headers=kw.get('headers'), verify=kw.get('verify'))\n"
+            "    return R()\n"
+            "panos.httpx.post = fake\n"
+            "out = panos.panos_system_info()\n"
+            "print(json.dumps({'ok': out['ok'], 'url': seen['url'],"
+            " 'key_in_body': 'KEY-123' in json.dumps(seen['data']),"
+            " 'header': seen['headers'].get('X-PAN-KEY') == 'KEY-123',"
+            " 'verify': seen['verify'] is True,"
+            " 'leak': 'KEY-123' in json.dumps(out)}))",
+            PANOS_HOST="fw.example.com", PANOS_API_KEY="KEY-123")
+        self.assertEqual(got, {"ok": True,
+                               "url": "https://fw.example.com/api/",
+                               "key_in_body": False, "header": True,
+                               "verify": True, "leak": False})
+
+    def test_the_host_and_key_are_never_tool_arguments(self):
+        import inspect
+        from tools import panos
+        for fn in (panos.panos_system_info, panos.panos_op_command,
+                   panos.panos_config_action, panos.panos_commit_config,
+                   panos.panos_commit_all_shared_policy):
+            params = set(inspect.signature(fn).parameters)
+            self.assertFalse(
+                params & {"host", "url", "api_key", "key", "verify_tls"},
+                "%s takes a connection setting as an argument -- a "
+                "conversation could then aim the key at another host"
+                % fn.__name__)
+
+    def test_a_host_setting_must_be_a_bare_https_host(self):
+        ok = config.clean_panos_host
+        self.assertEqual(ok("https://fw.example.com/"), "fw.example.com")
+        self.assertEqual(ok("10.0.0.1:4443"), "10.0.0.1:4443")
+        for bad in ("http://fw.example.com", "fw.example.com/api/?x=1",
+                    "user@fw.example.com", "fw.example.com evil", ""):
+            self.assertIsNone(ok(bad), bad)
+
+    def test_a_typo_cannot_switch_tls_off_or_writes_on(self):
+        self.assertTrue(config._flag("flase", True))
+        self.assertFalse(config._flag("ture", False))
+
+    def test_xml_carrying_a_doctype_is_refused(self):
+        from tools import panos
+        out = panos.panos_op_command(
+            '<!DOCTYPE x [<!ENTITY a "b">]><show>&a;</show>')
+        self.assertFalse(out["ok"])
+
+    def test_commit_tools_exist_only_when_a_tenant_allows_writes(self):
+        with open(os.path.join(MCP, "server.py"), encoding="utf-8") as fh:
+            text = fh.read()
+        guard = text.index("if config.any_ngfw_write():")
+        for name in ("panos_commit_config", "panos_commit_all_shared_policy"):
+            self.assertNotIn("\ndef %s(" % name, text,
+                             "%s is registered unconditionally" % name)
+            self.assertGreater(text.index("\n    def %s(" % name), guard)
+        self.assertFalse(self._py("print(json.dumps(config.any_ngfw_write()))",
+                                  PANOS_HOST="fw.example.com"))
+        self.assertTrue(self._py("print(json.dumps(config.any_ngfw_write()))",
+                                 PANOS_HOST="fw.example.com",
+                                 PANOS_ENABLE_WRITE="1"))
 
 
 if __name__ == "__main__":

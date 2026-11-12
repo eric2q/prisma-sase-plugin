@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.10.0 — 2026-11-12
+
+One server, two kinds of environment, any number of each. This release adds
+**tenants** and merges in the **PAN-OS XML API tools** from
+[edoscars/pan-os-mcp](https://github.com/edoscars/pan-os-mcp) (MIT), so a
+single install can work with Prisma Access tenants *and* on-prem firewalls.
+
+**If you change nothing, nothing changes.** An install configured the usual
+way keeps working exactly as before, and stays read-only.
+
+- **NEW — tenants.** A tenant is a named environment of one of two kinds:
+  `prisma_access` (a TSG, reached through the cloud SASE APIs) or `ngfw` (an
+  on-prem firewall or Panorama, reached directly over its XML API). Define as
+  many as you need in `~/.prisma-sase-tenants.json`; every tool takes an
+  optional `tenant` name. Your existing `PRISMA_*` setup simply becomes the
+  tenant called `default`.
+- **NEW:** `list_tenants` — the configured environments, their kind, which is
+  the default, and whether writes are enabled. Never a secret.
+- **NEW — each Prisma Access tenant can have its own service account.** Tokens
+  were already cached per TSG; credentials are now looked up per TSG too, so
+  customer B is never queried with customer A's account. `tsg_id` / `region`
+  arguments still work, and a `tsg_id` that matches a tenant now picks up that
+  tenant's region instead of the default one.
+- **NEW — PAN-OS tools** for `ngfw` tenants: `panos_system_info`,
+  `panos_op_command`, `panos_config_action`, and — only when writes are
+  enabled — `panos_commit_config` and `panos_commit_all_shared_policy`. These
+  are pan-os-mcp's five tools (`get_system_info`, `op_command`,
+  `config_action`, `commit_config`, `commit_all_shared_policy`) under a
+  `panos_` prefix.
+- **Writes are off unless you turn them on, per firewall.** Without
+  `"allow_write": true` a tenant accepts only `<show>` commands and config
+  `get`/`show`. Commits, config changes and every other operational command
+  are refused, and the two commit tools are not registered at all — the
+  assistant cannot see them. This is the one place this server can change
+  anything, so it is opt-in and named per device.
+- **What changed from pan-os-mcp, and why.** Upstream keeps the firewall
+  address and API key in the source file, sends the key as a URL parameter,
+  and disables TLS verification. Here the host and key come from your tenants
+  file or keychain and are never tool arguments; the key travels in the
+  `X-PAN-KEY` header; TLS is verified (`ca_bundle` for a private CA,
+  `verify_tls: false` as an explicit last resort that every response then
+  flags); and password hashes and keys in config reads are redacted.
+- **Not yet run against a real firewall.** The tools are exercised with
+  sample responses and a stubbed transport. Please try a `<show>` command on a
+  lab device before relying on them.
+- **NEW:** 14 tests — tenant selection, per-tenant credentials, the two kinds
+  never being confused, no secret in any output, writes refused until enabled,
+  secrets redacted, the key in a header over verified TLS, and that a typo in
+  a setting can never switch TLS off or writes on.
+
 ## 0.9.9 — 2026-11-12
 
 Per-incident severity, from the API PANW points to for it. Three new

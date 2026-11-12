@@ -471,3 +471,61 @@ README.zh-TW.md                   # this page in Traditional Chinese
 A standalone `.plugin` file (for machines that cannot reach the marketplace)
 can still be built any time: `python3 tools/build-standalone.py` → `dist/`. It
 carries the Skill only, and cannot update itself.
+
+## More than one environment: tenants, and on-prem firewalls
+
+Since 0.10.0 one server can work with several environments of two kinds:
+
+| Kind | What it is | Reached | Tools |
+|---|---|---|---|
+| `prisma_access` | a Prisma Access / SASE tenant (a TSG) | cloud SASE APIs, OAuth service account | the SASE tools |
+| `ngfw` | an on-prem firewall or Panorama | directly, PAN-OS XML API, API key | `panos_*` |
+
+**If you have one Prisma Access tenant, do nothing** — your existing setup is
+the tenant named `default`.
+
+For several tenants, or any firewall, create `~/.prisma-sase-tenants.json`
+and `chmod 600` it:
+
+```json
+{
+  "default": { "prisma_access": "lab", "ngfw": "pa440-a" },
+  "tenants": {
+    "lab":     { "kind": "prisma_access", "tsg_id": "<TSG ID>", "region": "sg",
+                 "client_id": "<service account client id>",
+                 "secret_cmd": "security find-generic-password -s prisma-sase-lab -w" },
+    "acme":    { "kind": "prisma_access", "tsg_id": "<TSG ID>", "region": "us",
+                 "client_id": "<service account client id>",
+                 "secret_cmd": "security find-generic-password -s prisma-sase-acme -w" },
+    "pa440-a": { "kind": "ngfw", "host": "fw.example.internal",
+                 "api_key_cmd": "security find-generic-password -s panos-pa440-a -w",
+                 "ca_bundle": "~/certs/lab-ca.pem" }
+  }
+}
+```
+
+Then ask Claude to "list tenants", and name the tenant in your question
+("how is **acme** doing", "show interfaces on **pa440-a**").
+
+- **Secrets stay out of the file.** `secret_cmd` / `api_key_cmd` is any
+  command that prints the secret — a keychain lookup on macOS, `secret-tool`
+  or `pass` on Linux. Store one with
+  `security add-generic-password -s panos-pa440-a -a "$USER" -w` (it prompts).
+  `client_secret` / `api_key` in plain text also work, and `list_tenants`
+  will tell you each time that they are there.
+- **A tenant without its own `client_id`** uses the service account from your
+  normal setup — fine when one account can see several TSGs.
+- **Firewalls are read-only until you say otherwise.** Add
+  `"allow_write": true` to one `ngfw` tenant to permit config changes and
+  commits on that device only, then restart the app. Leave it off on anything
+  you would not want changed from a chat window.
+- **TLS is verified.** For a firewall with a private or self-signed
+  certificate, point `ca_bundle` at the CA. `"verify_tls": false` works, and
+  every response from that tenant will say that it is off.
+- A single firewall can instead be set with environment keys in the Local MCP
+  entry: `PANOS_HOST`, `PANOS_API_KEY_CMD`, and optionally `PANOS_CA_BUNDLE`,
+  `PANOS_ENABLE_WRITE`. It becomes the tenant named `ngfw`.
+
+The PAN-OS tools are derived from
+[edoscars/pan-os-mcp](https://github.com/edoscars/pan-os-mcp) (MIT); see
+`THIRD_PARTY_NOTICES.md`.
